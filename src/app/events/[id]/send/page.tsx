@@ -140,7 +140,14 @@ export default async function SendPage({
             </Link>
             <h1 className="text-lg font-bold">שליחת הודעות בוואטסאפ</h1>
           </div>
-          <LogoutButton />
+          <div className="flex items-center gap-3">
+            {isAdmin && (
+              <Link href="/admin" className="text-sm text-muted transition hover:text-foreground">
+                פאנל ניהול
+              </Link>
+            )}
+            <LogoutButton />
+          </div>
         </div>
       </header>
 

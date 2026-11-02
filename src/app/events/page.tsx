@@ -12,17 +12,28 @@ export default async function EventsPage() {
   } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // RLS ensures only accessible events are returned
-  const { data: events } = await supabase
-    .from('events')
-    .select('id, title, host_names, event_date, venue_name')
-    .order('event_date')
+  const [{ data: events }, { data: profile }] = await Promise.all([
+    supabase
+      .from('events')
+      .select('id, title, host_names, event_date, venue_name')
+      .order('event_date'),
+    supabase.from('profiles').select('role').eq('id', user.id).single(),
+  ])
+
+  const isAdmin = profile?.role === 'admin'
 
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-10 border-b border-border bg-card px-4 py-3">
         <div className="mx-auto flex max-w-2xl items-center justify-between">
-          <h1 className="text-lg font-bold">האירועים שלי</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-lg font-bold">האירועים שלי</h1>
+            {isAdmin && (
+              <Link href="/admin" className="text-sm text-muted transition hover:text-foreground">
+                פאנל ניהול
+              </Link>
+            )}
+          </div>
           <LogoutButton />
         </div>
       </header>

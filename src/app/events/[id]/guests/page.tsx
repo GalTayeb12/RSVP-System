@@ -23,13 +23,14 @@ export default async function GuestsPage({
   } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: event } = await supabase
-    .from('events')
-    .select('id, title, rsvp_settings')
-    .eq('id', id)
-    .single()
+  const [{ data: event }, { data: profile }] = await Promise.all([
+    supabase.from('events').select('id, title, rsvp_settings').eq('id', id).single(),
+    supabase.from('profiles').select('role').eq('id', user.id).single(),
+  ])
 
   if (!event) notFound()
+
+  const isAdmin = profile?.role === 'admin'
 
   const { data: guests } = await supabase
     .from('guests')
@@ -118,7 +119,14 @@ export default async function GuestsPage({
             </Link>
             <h1 className="text-lg font-bold">מוזמנים — {event.title}</h1>
           </div>
-          <LogoutButton />
+          <div className="flex items-center gap-3">
+            {isAdmin && (
+              <Link href="/admin" className="text-sm text-muted transition hover:text-foreground">
+                פאנל ניהול
+              </Link>
+            )}
+            <LogoutButton />
+          </div>
         </div>
       </header>
 

@@ -84,7 +84,14 @@ export default async function EventPage({
             </Link>
             <h1 className="text-lg font-bold">{event.title}</h1>
           </div>
-          <LogoutButton />
+          <div className="flex items-center gap-3">
+            {isAdmin && (
+              <Link href="/admin" className="text-sm text-muted transition hover:text-foreground">
+                פאנל ניהול
+              </Link>
+            )}
+            <LogoutButton />
+          </div>
         </div>
       </header>
 

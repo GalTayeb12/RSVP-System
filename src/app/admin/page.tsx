@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import LogoutButton from '@/components/LogoutButton'
 import UserForm from './UserForm'
@@ -95,34 +96,65 @@ export default async function AdminPage() {
           {(!events || events.length === 0) ? (
             <p className="mb-4 text-sm text-muted">אין אירועים עדיין</p>
           ) : (
-            <div className="mb-6 overflow-x-auto rounded-2xl border border-border">
-              <table className="w-full text-sm">
-                <thead className="bg-background text-muted">
-                  <tr>
-                    <th className="px-4 py-3 text-right font-medium">כותרת</th>
-                    <th className="px-4 py-3 text-right font-medium">מארחים</th>
-                    <th className="px-4 py-3 text-right font-medium">תאריך</th>
-                    <th className="px-4 py-3 text-right font-medium">אולם</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border bg-card">
-                  {events.map((e) => (
-                    <tr key={e.id}>
-                      <td className="px-4 py-3 font-medium">{e.title}</td>
-                      <td className="px-4 py-3 text-muted">{e.host_names}</td>
-                      <td className="px-4 py-3 text-muted">
-                        {e.event_date
-                          ? new Date(e.event_date).toLocaleDateString('he-IL')
-                          : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-muted">
-                        {e.venue_name ?? '—'}
-                      </td>
+            <>
+              {/* Mobile: cards */}
+              <div className="mb-6 flex flex-col gap-3 sm:hidden">
+                {events.map((e) => (
+                  <Link
+                    key={e.id}
+                    href={`/events/${e.id}`}
+                    className="block rounded-2xl border border-border bg-card p-4 transition hover:border-accent"
+                  >
+                    <p className="font-semibold">{e.title}</p>
+                    <p className="mt-0.5 text-sm text-muted">{e.host_names}</p>
+                    <p className="mt-0.5 text-sm text-muted">
+                      {e.event_date
+                        ? new Date(e.event_date).toLocaleDateString('he-IL')
+                        : '—'}
+                      {e.venue_name ? ` · ${e.venue_name}` : ''}
+                    </p>
+                  </Link>
+                ))}
+              </div>
+
+              {/* Desktop: table */}
+              <div className="mb-6 hidden overflow-x-auto rounded-2xl border border-border sm:block">
+                <table className="w-full text-sm">
+                  <thead className="bg-background text-muted">
+                    <tr>
+                      <th className="px-4 py-3 text-right font-medium">כותרת</th>
+                      <th className="px-4 py-3 text-right font-medium">מארחים</th>
+                      <th className="px-4 py-3 text-right font-medium">תאריך</th>
+                      <th className="px-4 py-3 text-right font-medium">אולם</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-border bg-card">
+                    {events.map((e) => (
+                      <tr key={e.id} className="relative cursor-pointer hover:bg-background transition-colors">
+                        <td className="px-4 py-3 font-medium">
+                          {/* Invisible stretched link covers the whole row */}
+                          <Link
+                            href={`/events/${e.id}`}
+                            className="absolute inset-0"
+                            aria-label={e.title}
+                          />
+                          {e.title}
+                        </td>
+                        <td className="px-4 py-3 text-muted">{e.host_names}</td>
+                        <td className="px-4 py-3 text-muted">
+                          {e.event_date
+                            ? new Date(e.event_date).toLocaleDateString('he-IL')
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-muted">
+                          {e.venue_name ?? '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
 
           <EventForm owners={owners} />
