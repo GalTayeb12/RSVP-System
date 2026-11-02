@@ -40,6 +40,7 @@ type Props = {
   eventDate: string | null
   rsvpDeadline: string | null
   rsvpSettings: RsvpSettings
+  canSend: boolean
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -79,6 +80,7 @@ export default function DashboardClient({
   eventDate,
   rsvpDeadline,
   rsvpSettings,
+  canSend,
 }: Props) {
   const router = useRouter()
 
@@ -184,6 +186,15 @@ export default function DashboardClient({
           ייבוא מאקסל
         </Link>
       </div>
+
+      {canSend && (
+        <Link
+          href={`/events/${eventId}/send`}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent py-4 text-center font-bold text-white transition hover:opacity-90"
+        >
+          <span>שליחת הודעות בוואטסאפ</span>
+        </Link>
+      )}
 
       {/* Progress ring + attending count */}
       <div className="rounded-2xl border border-border bg-card p-6 flex items-center justify-between gap-6">

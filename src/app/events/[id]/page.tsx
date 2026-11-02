@@ -23,15 +23,22 @@ export default async function EventPage({
   } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: event } = await supabase
-    .from('events')
-    .select(
-      'id, title, host_names, event_date, venue_name, venue_address, waze_url, invitation_image_url, rsvp_deadline, rsvp_settings',
-    )
-    .eq('id', id)
-    .single()
+  const [{ data: event }, { data: profile }] = await Promise.all([
+    supabase
+      .from('events')
+      .select(
+        'id, title, host_names, event_date, venue_name, venue_address, waze_url, invitation_image_url, rsvp_deadline, rsvp_settings, owner_id',
+      )
+      .eq('id', id)
+      .single(),
+    supabase.from('profiles').select('role').eq('id', user.id).single(),
+  ])
 
   if (!event) notFound()
+
+  const isAdmin = profile?.role === 'admin'
+  const isOwner = event.owner_id === user.id
+  const canSend = isAdmin || isOwner
 
   const { data: guests } = await supabase
     .from('guests')
@@ -89,6 +96,7 @@ export default async function EventPage({
           eventDate={event.event_date ?? null}
           rsvpDeadline={event.rsvp_deadline ?? null}
           rsvpSettings={rsvpSettings}
+          canSend={canSend}
         />
 
         <EventClient

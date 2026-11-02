@@ -59,9 +59,27 @@ export default async function GuestsPage({
     }
   }
 
+  // Fetch last sent message per guest
+  const lastSentMap = new Map<string, string>()
+  if (guestIds.length > 0) {
+    const { data: sentMessages } = await supabase
+      .from('messages')
+      .select('guest_id, sent_at')
+      .in('guest_id', guestIds)
+      .eq('status', 'sent')
+      .order('sent_at', { ascending: false })
+
+    for (const m of sentMessages ?? []) {
+      if (m.sent_at && !lastSentMap.has(m.guest_id)) {
+        lastSentMap.set(m.guest_id, m.sent_at)
+      }
+    }
+  }
+
   const augmentedGuests = guestList.map((g) => ({
     ...g,
     lastHistory: lastHistoryMap.get(g.id) ?? null,
+    lastSent: lastSentMap.get(g.id) ?? null,
   }))
 
   const existingGroups = [

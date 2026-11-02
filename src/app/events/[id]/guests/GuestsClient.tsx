@@ -17,6 +17,7 @@ type Guest = GuestRow & {
   opted_out: boolean
   rsvp_answers: { transport?: { needs_transport?: boolean } } | null
   lastHistory: LastHistory
+  lastSent: string | null
 }
 
 type Props = {
@@ -68,6 +69,7 @@ export default function GuestsClient({
   const [filterStatus, setFilterStatus] = useState(initialStatus)
   const [filterLandline, setFilterLandline] = useState(initialLandline)
   const [filterTransport, setFilterTransport] = useState(initialTransport)
+  const [filterNoInvitation, setFilterNoInvitation] = useState(false)
 
   // Form visibility
   const [showForm, setShowForm] = useState(false)
@@ -103,9 +105,10 @@ export default function GuestsClient({
       if (filterStatus && g.status !== filterStatus) return false
       if (filterLandline && !isLandline(g.phone)) return false
       if (filterTransport && !g.rsvp_answers?.transport?.needs_transport) return false
+      if (filterNoInvitation && g.lastSent !== null) return false
       return true
     })
-  }, [guests, search, filterSide, filterGroup, filterStatus, filterLandline, filterTransport])
+  }, [guests, search, filterSide, filterGroup, filterStatus, filterLandline, filterTransport, filterNoInvitation])
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   function handleFormSuccess() {
@@ -217,6 +220,12 @@ export default function GuestsClient({
           הסעות
         </button>
         <button
+          onClick={() => setFilterNoInvitation((v) => !v)}
+          className={`rounded-lg border px-4 py-2 text-sm transition ${filterNoInvitation ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-border hover:bg-background'}`}
+        >
+          לא קיבל הזמנה
+        </button>
+        <button
           onClick={() => {
             setEditingGuest(null)
             setShowForm(true)
@@ -259,6 +268,7 @@ export default function GuestsClient({
                   <th className="px-4 py-3 text-right font-medium">קבוצה</th>
                   <th className="px-4 py-3 text-right font-medium">מוזמנים</th>
                   <th className="px-4 py-3 text-right font-medium">סטטוס</th>
+                  <th className="px-4 py-3 text-right font-medium">נשלח</th>
                   <th className="px-4 py-3 text-right font-medium">קישור</th>
                   <th className="px-4 py-3 text-right font-medium">פעולות</th>
                 </tr>
@@ -282,6 +292,14 @@ export default function GuestsClient({
                     <td className="px-4 py-3 text-center">{g.invited_count}</td>
                     <td className="px-4 py-3">
                       <StatusCell guest={g} />
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted">
+                      {g.lastSent
+                        ? new Date(g.lastSent).toLocaleDateString('he-IL', {
+                            day: 'numeric',
+                            month: 'numeric',
+                          })
+                        : '—'}
                     </td>
                     <td className="px-4 py-3">
                       <LinkButtons rsvpToken={g.rsvp_token} />
