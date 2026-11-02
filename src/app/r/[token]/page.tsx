@@ -59,7 +59,7 @@ export default async function RsvpPage({
   const { data: guest } = await supabase
     .from('guests')
     .select(
-      `id, first_name, invited_count, status, attending_count, rsvp_answers, opted_out, responded_at,
+      `id, first_name, invited_count, status, attending_count, rsvp_answers, opted_out, responded_at, table_number,
        events(title, host_names, partner_a_name, partner_b_name, event_date, venue_name, venue_address, waze_url, gift_url, show_seating, invitation_image_url, rsvp_deadline, rsvp_settings)`,
     )
     .eq('rsvp_token', token)
@@ -104,6 +104,7 @@ export default async function RsvpPage({
       token={token}
       firstName={guest.first_name}
       invitedCount={guest.invited_count}
+      tableNumber={guest.table_number ?? null}
       currentStatus={guest.status as 'pending' | 'attending' | 'declined' | 'maybe'}
       currentAttendingCount={guest.attending_count}
       currentRsvpAnswers={guest.rsvp_answers as RsvpAnswers | null ?? null}
