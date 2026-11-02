@@ -7,7 +7,7 @@ import { RATE_USD_PER_MESSAGE } from '@/lib/whatsapp-config'
 import type { CampaignSummary, EventInfo } from './page'
 import CampaignCreator from './CampaignCreator'
 import SendQueue from './SendQueue'
-import { sendTestButtonAction } from './actions'
+import { sendTestButtonAction, getCampaignMessagesAction, type MessageDetail } from './actions'
 import type { CampaignKind } from '@/lib/campaign'
 
 type Props = {
@@ -19,6 +19,7 @@ type Props = {
   groups: string[]
   isAdmin: boolean
   canAutoSend: boolean
+  isDryRun: boolean
 }
 
 type View =
@@ -37,6 +38,11 @@ function formatDate(iso: string) {
   })
 }
 
+function formatTime(iso: string | null) {
+  if (!iso) return null
+  return new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })
+}
+
 const KIND_COLOR: Record<CampaignKind, string> = {
   invitation: 'bg-blue-100 text-blue-700',
   reminder:   'bg-amber-100 text-amber-700',
@@ -50,6 +56,123 @@ const CH_LABEL: Record<string, string> = {
   sms:           'SMS',
 }
 
+const STATUS_DISPLAY: Record<string, { label: string; color: string }> = {
+  queued:    { label: 'ממתין',  color: 'text-muted' },
+  sent:      { label: 'נשלח',   color: 'text-blue-600' },
+  delivered: { label: 'נמסר',   color: 'text-green-600' },
+  read:      { label: 'נקרא',   color: 'text-green-700' },
+  failed:    { label: 'נכשל',   color: 'text-red-600' },
+}
+
+const ERROR_CODE_LABELS: Record<string, string> = {
+  '131026': 'אין למספר וואטסאפ',
+  '131030': 'המספר לא מאושר במספר הבדיקה של Meta',
+  '131047': 'ההודעה נשלחה מחוץ לחלון 24 שעות',
+  '130429': 'מגבלת קצב שליחה',
+  '131000': 'שגיאה כללית',
+  '131005': 'הגישה נדחתה',
+  '131008': 'פרמטר חסר',
+  '131009': 'ערך פרמטר לא תקין',
+}
+
+// ── Dry-run banner ────────────────────────────────────────────────────────────
+
+function DryRunBanner() {
+  return (
+    <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+      ⚠ מצב הדמיה — הודעות לא נשלחות באמת (WHATSAPP_DRY_RUN=true)
+    </div>
+  )
+}
+
+// ── Campaign detail panel ─────────────────────────────────────────────────────
+
+function CampaignDetailPanel({ campaignId }: { campaignId: string }) {
+  const [messages, setMessages] = useState<MessageDetail[] | null>(null)
+  const [loadError, setLoadError] = useState('')
+  const [isPending, startTransition] = useTransition()
+
+  // Load on first render
+  if (messages === null && !isPending && !loadError) {
+    startTransition(async () => {
+      const result = await getCampaignMessagesAction(campaignId)
+      if ('error' in result) {
+        setLoadError(result.error)
+      } else {
+        setMessages(result)
+      }
+    })
+  }
+
+  if (isPending) {
+    return <p className="py-3 text-center text-xs text-muted animate-pulse">טוען...</p>
+  }
+
+  if (loadError) {
+    return <p className="py-2 text-xs text-red-600">{loadError}</p>
+  }
+
+  if (!messages) return null
+
+  return (
+    <div className="mt-3 divide-y divide-border rounded-xl border border-border overflow-hidden text-xs">
+      {messages.map((m) => {
+        const isDryRunMsg = m.providerId?.startsWith('dry-') ?? false
+        const sd = STATUS_DISPLAY[m.status] ?? { label: m.status, color: 'text-muted' }
+        const codeLabel = m.errorCode ? (ERROR_CODE_LABELS[m.errorCode] ?? null) : null
+
+        return (
+          <div key={m.id} className="flex flex-col gap-0.5 bg-background px-3 py-2.5">
+            {/* Row 1: name + phone + status */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="font-medium truncate">{m.guestName}</span>
+                <span className="text-muted shrink-0" dir="ltr">{m.phone}</span>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {isDryRunMsg && (
+                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700 font-medium">
+                    הדמיה
+                  </span>
+                )}
+                <span className={`font-medium ${sd.color}`}>{sd.label}</span>
+              </div>
+            </div>
+
+            {/* Row 2: timestamps */}
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-muted">
+              {m.sentAt && (
+                <span>נשלח: {formatTime(m.sentAt)}</span>
+              )}
+              {m.deliveredAt && (
+                <span>נמסר: {formatTime(m.deliveredAt)}</span>
+              )}
+              {m.readAt && (
+                <span>נקרא: {formatTime(m.readAt)}</span>
+              )}
+              {m.failedAt && (
+                <span>נכשל: {formatTime(m.failedAt)}</span>
+              )}
+            </div>
+
+            {/* Row 3: error details */}
+            {m.status === 'failed' && (
+              <div className="text-red-600">
+                {m.errorCode && (
+                  <span className="font-mono mr-1">[{m.errorCode}]</span>
+                )}
+                {codeLabel ?? m.error ?? 'שגיאה לא ידועה'}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
 export default function SendPageClient({
   eventId,
   eventInfo,
@@ -59,27 +182,32 @@ export default function SendPageClient({
   groups,
   isAdmin,
   canAutoSend,
+  isDryRun,
 }: Props) {
   const router = useRouter()
   const [view, setView] = useState<View>({ name: 'history' })
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   if (view.name === 'create') {
     return (
-      <CampaignCreator
-        eventId={eventId}
-        eventInfo={eventInfo}
-        sampleGuestName={sampleGuestName}
-        groups={groups}
-        canAutoSend={canAutoSend}
-        onCreated={(campaignId, total, channel) => {
-          if (channel === 'whatsapp_api') {
-            setView({ name: 'auto-confirm', campaignId, total })
-          } else {
-            setView({ name: 'queue', campaignId, total })
-          }
-        }}
-        onCancel={() => setView({ name: 'history' })}
-      />
+      <>
+        {isDryRun && <div className="mb-4"><DryRunBanner /></div>}
+        <CampaignCreator
+          eventId={eventId}
+          eventInfo={eventInfo}
+          sampleGuestName={sampleGuestName}
+          groups={groups}
+          canAutoSend={canAutoSend}
+          onCreated={(campaignId, total, channel) => {
+            if (channel === 'whatsapp_api') {
+              setView({ name: 'auto-confirm', campaignId, total })
+            } else {
+              setView({ name: 'queue', campaignId, total })
+            }
+          }}
+          onCancel={() => setView({ name: 'history' })}
+        />
+      </>
     )
   }
 
@@ -98,6 +226,7 @@ export default function SendPageClient({
     const estimatedCost = (view.total * RATE_USD_PER_MESSAGE).toFixed(2)
     return (
       <div className="space-y-5">
+        {isDryRun && <DryRunBanner />}
         <h2 className="text-lg font-bold">אישור שליחה אוטומטית</h2>
         <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
           <p className="text-sm">
@@ -131,19 +260,23 @@ export default function SendPageClient({
 
   if (view.name === 'auto-run') {
     return (
-      <AutoSendRunner
-        eventId={eventId}
-        campaignId={view.campaignId}
-        total={view.total}
-        onDone={() => { router.refresh(); setView({ name: 'history' }) }}
-        onStop={() => { router.refresh(); setView({ name: 'history' }) }}
-      />
+      <>
+        {isDryRun && <div className="mb-4"><DryRunBanner /></div>}
+        <AutoSendRunner
+          campaignId={view.campaignId}
+          total={view.total}
+          onDone={() => { router.refresh(); setView({ name: 'history' }) }}
+          onStop={() => { router.refresh(); setView({ name: 'history' }) }}
+        />
+      </>
     )
   }
 
-  // History view
+  // ── History view ────────────────────────────────────────────────────────────
   return (
     <div className="space-y-5">
+      {isDryRun && <DryRunBanner />}
+
       <button
         onClick={() => setView({ name: 'create' })}
         className="w-full rounded-2xl bg-foreground py-4 text-center font-bold text-background transition hover:opacity-90"
@@ -168,9 +301,12 @@ export default function SendPageClient({
             const pct = c.total > 0 ? Math.round((c.completed / c.total) * 100) : 0
             const incomplete = c.completed < c.total
             const isApi = c.channel === 'whatsapp_api'
+            const isExpanded = expandedId === c.id
+
             return (
               <div key={c.id} className="rounded-2xl border border-border bg-card p-4 space-y-3">
-                <div className="flex items-center justify-between gap-3">
+                {/* Header row */}
+                <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${KIND_COLOR[c.kind]}`}>
                       {KIND_LABEL[c.kind]}
@@ -181,13 +317,33 @@ export default function SendPageClient({
                     <span className="text-xs text-muted">{formatDate(c.created_at)}</span>
                   </div>
                   <div className="text-sm font-medium text-right shrink-0">
-                    <span>{c.completed} / {c.total}</span>
-                    {c.failed > 0 && (
-                      <span className="mr-2 text-xs text-red-600">{c.failed} נכשלו</span>
-                    )}
+                    {c.completed} / {c.total}
                   </div>
                 </div>
 
+                {/* Stats row: delivered / read / failed (only for API campaigns with any activity) */}
+                {isApi && c.total > 0 && (
+                  <div className="flex gap-4 text-xs">
+                    {c.delivered > 0 && (
+                      <span className="text-green-600">נמסר: {c.delivered}</span>
+                    )}
+                    {c.read > 0 && (
+                      <span className="text-green-700 font-medium">נקרא: {c.read}</span>
+                    )}
+                    {c.failed > 0 && (
+                      <span className="text-red-600">נכשל: {c.failed}</span>
+                    )}
+                    {c.delivered === 0 && c.read === 0 && c.failed === 0 && c.completed > 0 && (
+                      <span className="text-blue-600">נשלח: {c.completed}</span>
+                    )}
+                  </div>
+                )}
+                {/* For non-API, just show failed if any */}
+                {!isApi && c.failed > 0 && (
+                  <div className="text-xs text-red-600">נכשל: {c.failed}</div>
+                )}
+
+                {/* Progress bar */}
                 <div className="h-2 w-full overflow-hidden rounded-full bg-border">
                   <div
                     className="h-full rounded-full bg-accent transition-all duration-500"
@@ -195,6 +351,7 @@ export default function SendPageClient({
                   />
                 </div>
 
+                {/* Resume button */}
                 {incomplete && (
                   <button
                     onClick={() => {
@@ -210,6 +367,16 @@ export default function SendPageClient({
                     המשך שליחה ({c.total - c.completed} נותרו)
                   </button>
                 )}
+
+                {/* Toggle details */}
+                <button
+                  onClick={() => setExpandedId(isExpanded ? null : c.id)}
+                  className="w-full text-right text-xs text-muted transition hover:text-foreground"
+                >
+                  {isExpanded ? '▴ הסתר פרטים' : '▾ פרטי הודעות'}
+                </button>
+
+                {isExpanded && <CampaignDetailPanel campaignId={c.id} />}
               </div>
             )
           })}
@@ -222,13 +389,11 @@ export default function SendPageClient({
 // ── Auto-send runner ──────────────────────────────────────────────────────────
 
 function AutoSendRunner({
-  eventId,
   campaignId,
   total,
   onDone,
   onStop,
 }: {
-  eventId: string
   campaignId: string
   total: number
   onDone: () => void

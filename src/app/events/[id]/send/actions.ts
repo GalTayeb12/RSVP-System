@@ -225,6 +225,60 @@ export async function fetchCampaignQueue(
   }))
 }
 
+// ── Fetch all messages for a campaign (detail view) ──────────────────────────
+
+export type MessageDetail = {
+  id: string
+  guestName: string
+  phone: string
+  status: string
+  sentAt: string | null
+  deliveredAt: string | null
+  readAt: string | null
+  failedAt: string | null
+  error: string | null
+  errorCode: string | null
+  providerId: string | null
+}
+
+export async function getCampaignMessagesAction(
+  campaignId: string,
+): Promise<MessageDetail[] | { error: string }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { error: 'לא מחובר' }
+
+  const { data, error } = await supabase
+    .from('messages')
+    .select('id, status, sent_at, delivered_at, read_at, failed_at, error, error_code, provider_id, guests(first_name, phone)')
+    .eq('campaign_id', campaignId)
+    .order('created_at')
+
+  if (error) {
+    console.error('[getCampaignMessagesAction]', error.message)
+    return { error: 'שגיאה בטעינת פרטי הסבב' }
+  }
+
+  return (data ?? []).map((m) => {
+    const g = m.guests as unknown as { first_name: string; phone: string } | null
+    return {
+      id:          m.id,
+      guestName:   g?.first_name ?? '',
+      phone:       g?.phone ?? '',
+      status:      m.status,
+      sentAt:      m.sent_at,
+      deliveredAt: m.delivered_at,
+      readAt:      m.read_at,
+      failedAt:    m.failed_at,
+      error:       m.error,
+      errorCode:   m.error_code,
+      providerId:  m.provider_id,
+    }
+  })
+}
+
 // ── Send test interactive message (admin only) ────────────────────────────────
 
 export async function sendTestButtonAction(

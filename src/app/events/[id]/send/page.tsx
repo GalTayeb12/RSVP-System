@@ -17,6 +17,8 @@ export type CampaignSummary = {
   created_at: string
   total: number
   completed: number  // sent + delivered + read
+  delivered: number
+  read: number
   failed: number
 }
 
@@ -62,7 +64,7 @@ export default async function SendPage({
     .order('created_at', { ascending: false })
 
   const campaignIds = (campaigns ?? []).map((c) => c.id)
-  const messageCounts: Record<string, { total: number; completed: number; failed: number }> = {}
+  const messageCounts: Record<string, { total: number; completed: number; delivered: number; read: number; failed: number }> = {}
 
   if (campaignIds.length > 0) {
     const { data: msgs } = await supabase
@@ -72,12 +74,13 @@ export default async function SendPage({
 
     for (const m of msgs ?? []) {
       if (!messageCounts[m.campaign_id])
-        messageCounts[m.campaign_id] = { total: 0, completed: 0, failed: 0 }
+        messageCounts[m.campaign_id] = { total: 0, completed: 0, delivered: 0, read: 0, failed: 0 }
       messageCounts[m.campaign_id].total++
       if (['sent', 'delivered', 'read'].includes(m.status))
         messageCounts[m.campaign_id].completed++
-      if (m.status === 'failed')
-        messageCounts[m.campaign_id].failed++
+      if (m.status === 'delivered') messageCounts[m.campaign_id].delivered++
+      if (m.status === 'read')      messageCounts[m.campaign_id].read++
+      if (m.status === 'failed')    messageCounts[m.campaign_id].failed++
     }
   }
 
@@ -89,7 +92,9 @@ export default async function SendPage({
     created_at: c.created_at,
     total: messageCounts[c.id]?.total ?? 0,
     completed: messageCounts[c.id]?.completed ?? 0,
-    failed: messageCounts[c.id]?.failed ?? 0,
+    delivered: messageCounts[c.id]?.delivered ?? 0,
+    read:      messageCounts[c.id]?.read ?? 0,
+    failed:    messageCounts[c.id]?.failed ?? 0,
   }))
 
   // Sample guest for live preview + test button
@@ -120,6 +125,7 @@ export default async function SendPage({
   }
 
   const canAutoSend = isWhatsAppConfigured()
+  const isDryRun = process.env.WHATSAPP_DRY_RUN === 'true'
 
   return (
     <div className="min-h-screen bg-background">
@@ -148,6 +154,7 @@ export default async function SendPage({
           groups={groups}
           isAdmin={isAdmin}
           canAutoSend={canAutoSend}
+          isDryRun={isDryRun}
         />
       </main>
     </div>
