@@ -36,9 +36,14 @@ export async function proxy(request: NextRequest) {
   const isPublic =
     pathname === '/' ||
     pathname === '/login' ||
-    pathname.startsWith('/r/')
+    pathname.startsWith('/r/') ||
+    // Webhook is self-authenticating (verify token on GET, HMAC signature on POST)
+    pathname === '/api/whatsapp/webhook'
 
-  if (!user && !isPublic) {
+  // API routes that are protected return 401 themselves — never redirect them to /login
+  const isApiRoute = pathname.startsWith('/api/')
+
+  if (!user && !isPublic && !isApiRoute) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
