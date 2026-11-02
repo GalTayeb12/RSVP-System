@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "create-admin": "tsx scripts/create-admin.ts"
+    "create-admin": "tsx --env-file=.env.local scripts/create-admin.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

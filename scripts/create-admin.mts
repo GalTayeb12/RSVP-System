@@ -4,14 +4,10 @@
  * Usage:
  *   npm run create-admin <username> <password>
  *
- * Reads credentials from .env.local (must exist before running).
+ * Reads credentials from .env.local via --env-file flag in package.json.
  */
 
 import { createClient } from '@supabase/supabase-js'
-import { config } from 'dotenv'
-import { resolve } from 'path'
-
-config({ path: resolve(process.cwd(), '.env.local') })
 
 const username = process.argv[2]
 const password = process.argv[3]
@@ -42,6 +38,18 @@ const supabase = createClient(url, serviceKey, {
 
 const email = `${username}@rsvp.local`
 
+// Check if user already exists
+const { data: existing } = await supabase
+  .from('profiles')
+  .select('id')
+  .eq('username', username)
+  .maybeSingle()
+
+if (existing) {
+  console.error(`משתמש בשם "${username}" כבר קיים במערכת`)
+  process.exit(1)
+}
+
 const {
   data: { user },
   error: authError,
@@ -51,8 +59,18 @@ const {
   email_confirm: true,
 })
 
-if (authError || !user) {
-  console.error('שגיאה ביצירת משתמש:', authError?.message ?? 'לא ידועה')
+if (authError) {
+  if (authError.message.toLowerCase().includes('already registered') ||
+      authError.message.toLowerCase().includes('already been registered')) {
+    console.error(`משתמש עם האימייל "${email}" כבר קיים ב-Auth`)
+  } else {
+    console.error('שגיאה ביצירת משתמש:', authError.message)
+  }
+  process.exit(1)
+}
+
+if (!user) {
+  console.error('שגיאה: לא הוחזר משתמש מ-Supabase')
   process.exit(1)
 }
 
