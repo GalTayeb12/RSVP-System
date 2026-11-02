@@ -1,387 +1,280 @@
--- ════════════════════════════════════════════════════════════════════════════
--- RLS Policy Tests
--- Run in Supabase SQL Editor as a single "Run" click.
--- Results appear in the Results tab (FAIL rows first).
--- Always rolls back — leaves no data behind.
--- ════════════════════════════════════════════════════════════════════════════
--- How it works:
---   1. Creates _rls_results temp table to collect PASS/FAIL rows.
---   2. Inserts test fixtures as the postgres superuser (bypasses RLS).
---   3. The DO block switches roles via EXECUTE 'set local role ...' and
---      sets request.jwt.claims so auth.uid() returns the right UUID.
---   4. Calls rec() to record each result into _rls_results.
---   5. After the DO block, SELECT displays all rows (Results tab).
---   6. ROLLBACK removes all test data including the temp table.
--- ════════════════════════════════════════════════════════════════════════════
+-- =============================================================
+-- RLS test suite
+-- Run in Supabase: SQL Editor > New query > paste this whole file > Run.
+--
+-- Results appear in the Results tab: one row per test, FAILs first.
+-- All test data (users, events, guests...) is created inside a
+-- sub-transaction and rolled back at the end, so nothing is left behind.
+-- Safe to run as many times as you like.
+-- =============================================================
 
-begin;
-
--- ── Temp results table ────────────────────────────────────────────────────
--- Created before the DO block so we can SELECT it after.
--- GRANT lets rec() insert even when role = authenticated.
-
-create temp table _rls_results (
-  result   text,   -- 'PASS' or 'FAIL'
-  test     text,
-  expected text,
-  actual   text
-);
-
-grant insert, select on _rls_results to authenticated;
-
--- ── Fixture UUIDs ──────────────────────────────────────────────────────────
--- All UUIDs are valid hex (8-4-4-4-12). No letters outside 0-9 a-f.
-
-do $setup$ begin
-  perform set_config('t.admin_id',    'a1000000-0000-0000-0000-000000000001', false);
-  perform set_config('t.owner_a_id',  'a1000000-0000-0000-0000-000000000002', false);
-  perform set_config('t.owner_b_id',  'a1000000-0000-0000-0000-000000000003', false);
-  perform set_config('t.helper_id',   'a1000000-0000-0000-0000-000000000004', false);
-  perform set_config('t.event_a_id',  'e1000000-0000-0000-0000-000000000001', false);
-  perform set_config('t.event_b_id',  'e1000000-0000-0000-0000-000000000002', false);
-  perform set_config('t.guest_a_id',  'b1000000-0000-0000-0000-000000000001', false);
-  perform set_config('t.campaign_id', 'c1000000-0000-0000-0000-000000000001', false);
-  perform set_config('t.message_id',  'd1000000-0000-0000-0000-000000000001', false);
-end $setup$;
-
--- ── Create test auth users ─────────────────────────────────────────────────
--- All Supabase-required columns are supplied.
-
-insert into auth.users (
-  id,
-  instance_id,
-  aud,
-  role,
-  email,
-  encrypted_password,
-  email_confirmed_at,
-  created_at,
-  updated_at,
-  raw_app_meta_data,
-  raw_user_meta_data,
-  confirmation_token,
-  recovery_token,
-  email_change_token_new,
-  email_change,
-  is_super_admin,
-  is_sso_user
-) values
-  (
-    current_setting('t.admin_id')::uuid,
-    '00000000-0000-0000-0000-000000000000',
-    'authenticated', 'authenticated',
-    'admin_rls@rsvp.test', '',
-    now(), now(), now(),
-    '{}', '{}',
-    '', '', '', '',
-    false, false
-  ),
-  (
-    current_setting('t.owner_a_id')::uuid,
-    '00000000-0000-0000-0000-000000000000',
-    'authenticated', 'authenticated',
-    'owner_a_rls@rsvp.test', '',
-    now(), now(), now(),
-    '{}', '{}',
-    '', '', '', '',
-    false, false
-  ),
-  (
-    current_setting('t.owner_b_id')::uuid,
-    '00000000-0000-0000-0000-000000000000',
-    'authenticated', 'authenticated',
-    'owner_b_rls@rsvp.test', '',
-    now(), now(), now(),
-    '{}', '{}',
-    '', '', '', '',
-    false, false
-  ),
-  (
-    current_setting('t.helper_id')::uuid,
-    '00000000-0000-0000-0000-000000000000',
-    'authenticated', 'authenticated',
-    'helper_rls@rsvp.test', '',
-    now(), now(), now(),
-    '{}', '{}',
-    '', '', '', '',
-    false, false
-  );
-
--- ── Profiles ───────────────────────────────────────────────────────────────
-
-insert into profiles (id, username, role) values
-  (current_setting('t.admin_id')::uuid,   'admin_rls',   'admin'),
-  (current_setting('t.owner_a_id')::uuid, 'owner_a_rls', 'owner'),
-  (current_setting('t.owner_b_id')::uuid, 'owner_b_rls', 'owner'),
-  (current_setting('t.helper_id')::uuid,  'helper_rls',  'helper');
-
--- ── Events ─────────────────────────────────────────────────────────────────
-
-insert into events (id, owner_id, title, host_names) values
-  (
-    current_setting('t.event_a_id')::uuid,
-    current_setting('t.owner_a_id')::uuid,
-    'RLS Test Event A', 'Owner A'
-  ),
-  (
-    current_setting('t.event_b_id')::uuid,
-    current_setting('t.owner_b_id')::uuid,
-    'RLS Test Event B', 'Owner B'
-  );
-
--- ── Event members: helper belongs to event_a ──────────────────────────────
-
-insert into event_members (event_id, user_id, role) values
-  (
-    current_setting('t.event_a_id')::uuid,
-    current_setting('t.helper_id')::uuid,
-    'helper'
-  );
-
--- ── Guest, campaign, message in event_a ───────────────────────────────────
-
-insert into guests (id, event_id, first_name, phone, side) values
-  (
-    current_setting('t.guest_a_id')::uuid,
-    current_setting('t.event_a_id')::uuid,
-    'Test Guest', '+972501234567', 'shared'
-  );
-
-insert into campaigns (id, event_id, kind, channel, template_text, audience) values
-  (
-    current_setting('t.campaign_id')::uuid,
-    current_setting('t.event_a_id')::uuid,
-    'invitation', 'whatsapp_link', 'Hello', 'all'
-  );
-
-insert into messages (id, campaign_id, guest_id, channel, status) values
-  (
-    current_setting('t.message_id')::uuid,
-    current_setting('t.campaign_id')::uuid,
-    current_setting('t.guest_a_id')::uuid,
-    'whatsapp_link', 'queued'
-  );
-
--- ── Test runner ────────────────────────────────────────────────────────────
-
-do $tests$
+-- Runs one SQL statement as a given user (or as anon when uid is null)
+-- and reports what happened:
+--   'ok:N'    the statement ran; N = rows returned / affected
+--   'denied'  blocked by RLS or a permission check
+--   'error: ...' anything else (a real problem with the test or schema)
+create or replace function pg_temp.run_as(uid uuid, stmt text)
+returns text
+language plpgsql
+as $$
 declare
-  cnt  int;
-
-  -- Switch current role + JWT claims to simulate a logged-in user
-  procedure switch_to(uid uuid) as $$
-  begin
-    execute 'set local role to authenticated';
-    execute format(
-      'set local "request.jwt.claims" to %L',
-      json_build_object('sub', uid::text)::text
-    );
-  end $$;
-
-  -- Record a test result into _rls_results
-  procedure rec(test_name text, expected text, actual_val text) as $$
-  begin
-    insert into _rls_results (result, test, expected, actual) values (
-      case when expected = actual_val then 'PASS' else 'FAIL' end,
-      test_name,
-      expected,
-      actual_val
-    );
-  end $$;
-
-  ADMIN_ID    uuid := current_setting('t.admin_id')::uuid;
-  OWNER_A     uuid := current_setting('t.owner_a_id')::uuid;
-  OWNER_B     uuid := current_setting('t.owner_b_id')::uuid;
-  HELPER      uuid := current_setting('t.helper_id')::uuid;
-  EVENT_A     uuid := current_setting('t.event_a_id')::uuid;
-  EVENT_B     uuid := current_setting('t.event_b_id')::uuid;
-  GUEST_A     uuid := current_setting('t.guest_a_id')::uuid;
-  MESSAGE_A   uuid := current_setting('t.message_id')::uuid;
-
+  n bigint;
 begin
+  if uid is null then
+    execute 'set local role anon';
+    perform set_config('request.jwt.claim.sub', '', true);
+    perform set_config('request.jwt.claims', '', true);
+  else
+    execute 'set local role authenticated';
+    perform set_config('request.jwt.claim.sub', uid::text, true);
+    perform set_config('request.jwt.claims', json_build_object('sub', uid, 'role', 'authenticated')::text, true);
+  end if;
 
-  -- ════════════════════════════════════════════════════════════════════
-  -- EVENTS — read isolation
-  -- ════════════════════════════════════════════════════════════════════
-
-  call switch_to(OWNER_A);
-  select count(*) into cnt from events where id = EVENT_A;
-  call rec('owner_a reads own event', '1', cnt::text);
-
-  call switch_to(OWNER_A);
-  select count(*) into cnt from events where id = EVENT_B;
-  call rec('owner_a cannot read owner_b event', '0', cnt::text);
-
-  call switch_to(OWNER_B);
-  select count(*) into cnt from events where id = EVENT_A;
-  call rec('owner_b cannot read owner_a event', '0', cnt::text);
-
-  call switch_to(HELPER);
-  select count(*) into cnt from events where id = EVENT_A;
-  call rec('helper reads event they belong to', '1', cnt::text);
-
-  call switch_to(HELPER);
-  select count(*) into cnt from events where id = EVENT_B;
-  call rec('helper cannot read event they do not belong to', '0', cnt::text);
-
-  call switch_to(ADMIN_ID);
-  select count(*) into cnt from events where id in (EVENT_A, EVENT_B);
-  call rec('admin reads both test events', '2', cnt::text);
-
-  -- ════════════════════════════════════════════════════════════════════
-  -- EVENTS — owner cannot change owner_id (WITH CHECK protection)
-  -- ════════════════════════════════════════════════════════════════════
-
-  call switch_to(OWNER_A);
   begin
-    update events set owner_id = OWNER_B where id = EVENT_A;
-    -- If no exception: WITH CHECK blocked silently (0 rows) or allowed
-    select count(*) into cnt from events where id = EVENT_A and owner_id = OWNER_B;
-    if cnt = 0 then
-      call rec('owner_a cannot change owner_id (silent block)', 'BLOCKED', 'BLOCKED');
+    if stmt ~* '^\s*select' then
+      execute 'select count(*) from (' || stmt || ') q' into n;
     else
-      call rec('owner_a cannot change owner_id (silent block)', 'BLOCKED', 'NOT BLOCKED');
+      execute stmt;
+      get diagnostics n = row_count;
     end if;
-  exception when others then
-    call rec('owner_a cannot change owner_id (exception)', 'BLOCKED', 'BLOCKED');
+  exception
+    when insufficient_privilege or raise_exception or check_violation then
+      execute 'reset role';
+      return 'denied';
+    when others then
+      execute 'reset role';
+      return 'error: ' || sqlerrm;
   end;
 
   execute 'reset role';
-  select count(*) into cnt from events where id = EVENT_A and owner_id = OWNER_A;
-  call rec('owner_id still OWNER_A after blocked attempt', '1', cnt::text);
+  return 'ok:' || n;
+end $$;
 
-  -- ════════════════════════════════════════════════════════════════════
-  -- CAMPAIGNS — helpers read; owners/admins write
-  -- ════════════════════════════════════════════════════════════════════
+create or replace function pg_temp.rls_tests()
+returns table (num int, test text, expected text, actual text, result text)
+language plpgsql
+as $$
+declare
+  -- fixed test ids (valid hex UUIDs)
+  u_admin  constant uuid := 'a0000000-0000-0000-0000-0000000000a0';
+  u_ownerA constant uuid := 'a0000000-0000-0000-0000-0000000000a1';
+  u_ownerB constant uuid := 'a0000000-0000-0000-0000-0000000000b1';
+  u_helper constant uuid := 'a0000000-0000-0000-0000-0000000000c1';
+  e_A      constant uuid := 'e0000000-0000-0000-0000-00000000000a';
+  e_B      constant uuid := 'e0000000-0000-0000-0000-00000000000b';
+  g_A      constant uuid := 'f0000000-0000-0000-0000-00000000000a';
+  g_B      constant uuid := 'f0000000-0000-0000-0000-00000000000b';
+  c_A      constant uuid := 'c0000000-0000-0000-0000-00000000000a';
 
-  call switch_to(HELPER);
-  select count(*) into cnt from campaigns where event_id = EVENT_A;
-  call rec('helper reads campaigns for accessible event', '1', cnt::text);
+  names text[] := '{}';
+  exps  text[] := '{}';
+  acts  text[] := '{}';
+  i int := 0;
+begin
+  begin  -- sub-transaction: everything in here is rolled back at the end
 
-  call switch_to(OWNER_B);
-  select count(*) into cnt from campaigns where event_id = EVENT_A;
-  call rec('owner_b cannot read owner_a campaigns', '0', cnt::text);
+    -- ---------- fixtures (created as the SQL Editor's own role) ----------
+    insert into auth.users (id, instance_id, aud, role, email, encrypted_password,
+                            email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+                            created_at, updated_at)
+    select id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+           email, '', now(), '{}'::jsonb, '{}'::jsonb, now(), now()
+    from (values (u_admin,  'rls_admin@rsvp.test'),
+                 (u_ownerA, 'rls_owner_a@rsvp.test'),
+                 (u_ownerB, 'rls_owner_b@rsvp.test'),
+                 (u_helper, 'rls_helper@rsvp.test')) v(id, email);
 
-  call switch_to(OWNER_A);
-  select count(*) into cnt from campaigns where event_id = EVENT_A;
-  call rec('owner_a reads own campaigns', '1', cnt::text);
+    insert into profiles (id, username, role) values
+      (u_admin,  'rls_admin',   'admin'),
+      (u_ownerA, 'rls_owner_a', 'owner'),
+      (u_ownerB, 'rls_owner_b', 'owner'),
+      (u_helper, 'rls_helper',  'helper');
 
-  call switch_to(HELPER);
-  begin
-    insert into campaigns (event_id, kind, channel, template_text, audience)
-      values (EVENT_A, 'reminder', 'whatsapp_link', 'test', 'all');
-    call rec('helper cannot insert campaign', 'BLOCKED', 'NOT BLOCKED');
-  exception when others then
-    call rec('helper cannot insert campaign', 'BLOCKED', 'BLOCKED');
+    insert into events (id, owner_id, title) values
+      (e_A, u_ownerA, 'RLS test event A'),
+      (e_B, u_ownerB, 'RLS test event B');
+
+    insert into event_members (event_id, user_id, role) values (e_A, u_helper, 'helper');
+
+    insert into guests (id, event_id, first_name, phone) values
+      (g_A, e_A, 'Guest A', '+972500000001'),
+      (g_B, e_B, 'Guest B', '+972500000002');
+
+    insert into campaigns (id, event_id, kind, template_text)
+      values (c_A, e_A, 'invitation', 'test');
+
+    insert into messages (campaign_id, guest_id, channel) values (c_A, g_A, 'whatsapp_link');
+
+    -- ---------- tests ----------
+    -- Each test: name, expected result, actual result
+
+    -- guests: isolation between couples
+    names := array_append(names, ('Owner A sees only own guests')::text);
+    exps := array_append(exps, ('ok:1')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_ownerA, 'select 1 from guests'))::text);
+
+    names := array_append(names, ('Owner A cannot read event B guests')::text);
+    exps := array_append(exps, ('ok:0')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_ownerA, format('select 1 from guests where event_id = %L', e_B)))::text);
+
+    names := array_append(names, ('Owner A cannot add guest to event B')::text);
+    exps := array_append(exps, ('denied')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_ownerA, format(
+      'insert into guests (event_id, first_name, phone) values (%L, ''X'', ''+972500000099'')', e_B)))::text);
+
+    names := array_append(names, ('Owner A cannot edit event B guest')::text);
+    exps := array_append(exps, ('ok:0')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_ownerA, format(
+      'update guests set first_name = ''hacked'' where id = %L', g_B)))::text);
+
+    names := array_append(names, ('Owner A cannot delete event B guest')::text);
+    exps := array_append(exps, ('ok:0')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_ownerA, format('delete from guests where id = %L', g_B)))::text);
+
+    -- helper: can manage guests, cannot send
+    names := array_append(names, ('Helper sees event A guests')::text);
+    exps := array_append(exps, ('ok:1')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_helper, 'select 1 from guests'))::text);
+
+    names := array_append(names, ('Helper can add guest to event A')::text);
+    exps := array_append(exps, ('ok:1')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_helper, format(
+      'insert into guests (event_id, first_name, phone) values (%L, ''Helper guest'', ''+972500000003'')', e_A)))::text);
+
+    names := array_append(names, ('Helper can read campaigns')::text);
+    exps := array_append(exps, ('ok:1')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_helper, 'select 1 from campaigns'))::text);
+
+    names := array_append(names, ('Helper cannot create campaign')::text);
+    exps := array_append(exps, ('denied')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_helper, format(
+      'insert into campaigns (event_id, kind, template_text) values (%L, ''reminder'', ''x'')', e_A)))::text);
+
+    names := array_append(names, ('Helper cannot edit campaign')::text);
+    exps := array_append(exps, ('ok:0')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_helper, format(
+      'update campaigns set template_text = ''hacked'' where id = %L', c_A)))::text);
+
+    names := array_append(names, ('Helper cannot delete campaign')::text);
+    exps := array_append(exps, ('ok:0')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_helper, format('delete from campaigns where id = %L', c_A)))::text);
+
+    names := array_append(names, ('Helper can read messages')::text);
+    exps := array_append(exps, ('ok:1')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_helper, 'select 1 from messages'))::text);
+
+    names := array_append(names, ('Helper cannot create message')::text);
+    exps := array_append(exps, ('denied')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_helper, format(
+      'insert into messages (campaign_id, guest_id, channel) values (%L, %L, ''whatsapp_link'')', c_A, g_A)))::text);
+
+    names := array_append(names, ('Helper cannot add members to event')::text);
+    exps := array_append(exps, ('denied')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_helper, format(
+      'insert into event_members (event_id, user_id, role) values (%L, %L, ''helper'')', e_A, u_ownerB)))::text);
+
+    -- owner: can manage own event
+    names := array_append(names, ('Owner A can create campaign')::text);
+    exps := array_append(exps, ('ok:1')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_ownerA, format(
+      'insert into campaigns (event_id, kind, template_text) values (%L, ''reminder'', ''x'')', e_A)))::text);
+
+    names := array_append(names, ('Owner A can edit own event')::text);
+    exps := array_append(exps, ('ok:1')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_ownerA, format(
+      'update events set title = ''renamed'' where id = %L', e_A)))::text);
+
+    names := array_append(names, ('Owner A cannot transfer event to owner B')::text);
+    exps := array_append(exps, ('denied')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_ownerA, format(
+      'update events set owner_id = %L where id = %L', u_ownerB, e_A)))::text);
+
+    names := array_append(names, ('Owner A cannot see event B')::text);
+    exps := array_append(exps, ('ok:0')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_ownerA, format('select 1 from events where id = %L', e_B)))::text);
+
+    names := array_append(names, ('Owner B cannot read event A campaigns')::text);
+    exps := array_append(exps, ('ok:0')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_ownerB, 'select 1 from campaigns'))::text);
+
+    names := array_append(names, ('Owner A can add helper to own event')::text);
+    exps := array_append(exps, ('ok:1')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_ownerA, format(
+      'insert into event_members (event_id, user_id, role) values (%L, %L, ''helper'')', e_A, u_ownerB)))::text);
+
+    -- profiles: no self-promotion
+    -- Blocked by RLS before the trigger even runs: 0 rows change.
+    names := array_append(names, ('Owner A cannot make self admin (0 rows changed)')::text);
+    exps := array_append(exps, ('ok:0')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_ownerA, format(
+      'update profiles set role = ''admin'' where id = %L', u_ownerA)))::text);
+
+    names := array_append(names, ('Owner A cannot edit owner B profile')::text);
+    exps := array_append(exps, ('ok:0')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_ownerA, format(
+      'update profiles set full_name = ''hacked'' where id = %L', u_ownerB)))::text);
+
+    -- admin: sees and manages everything
+    names := array_append(names, ('Admin sees all test guests')::text);
+    exps := array_append(exps, ('ok:3')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_admin, format(
+      'select 1 from guests where event_id in (%L, %L)', e_A, e_B)))::text);
+
+    names := array_append(names, ('Admin can transfer event ownership')::text);
+    exps := array_append(exps, ('ok:1')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_admin, format(
+      'update events set owner_id = %L where id = %L', u_ownerB, e_B)))::text);
+
+    -- not logged in
+    names := array_append(names, ('Anonymous user sees no guests')::text);
+    exps := array_append(exps, ('ok:0')::text);
+    acts := array_append(acts, (pg_temp.run_as(null, 'select 1 from guests'))::text);
+
+    names := array_append(names, ('Anonymous user sees no events')::text);
+    exps := array_append(exps, ('ok:0')::text);
+    acts := array_append(acts, (pg_temp.run_as(null, 'select 1 from events'))::text);
+
+    -- storage: invitation images
+    names := array_append(names, ('Helper cannot upload invitation image')::text);
+    exps := array_append(exps, ('denied')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_helper, format(
+      'insert into storage.objects (bucket_id, name) values (''invitations'', %L)', e_A || '/rls-test.png')))::text);
+
+    names := array_append(names, ('Owner B cannot upload to event A folder')::text);
+    exps := array_append(exps, ('denied')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_ownerB, format(
+      'insert into storage.objects (bucket_id, name) values (''invitations'', %L)', e_A || '/rls-test.png')))::text);
+
+    names := array_append(names, ('Owner A can upload to own event folder')::text);
+    exps := array_append(exps, ('ok:1')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_ownerA, format(
+      'insert into storage.objects (bucket_id, name) values (''invitations'', %L)', e_A || '/rls-test.png')))::text);
+
+    -- undo all fixtures and test writes
+    raise exception 'rls_tests_rollback';
+  exception
+    when others then
+      if sqlerrm <> 'rls_tests_rollback' then
+        names := array_append(names, ('SCRIPT ERROR (tests stopped here)')::text);
+        exps := array_append(exps, ('-')::text);
+        acts := array_append(acts, (sqlerrm)::text);
+      end if;
   end;
 
-  -- ════════════════════════════════════════════════════════════════════
-  -- MESSAGES — helpers read; owners/admins write
-  -- ════════════════════════════════════════════════════════════════════
+  return query
+    with r as (
+      select t.n::int as n, names[t.n] as tn, exps[t.n] as ex, acts[t.n] as ac,
+             case when acts[t.n] = exps[t.n] then 'PASS' else 'FAIL' end as res
+      from generate_subscripts(names, 1) as t(n)
+    )
+    select 0, 'SUMMARY'::text, (count(*))::text || ' tests',
+           (count(*) filter (where res = 'PASS'))::text || ' passed, '
+             || (count(*) filter (where res = 'FAIL'))::text || ' failed',
+           case when bool_and(res = 'PASS') then 'PASS' else 'FAIL' end
+    from r
+    union all
+    (select n, tn, ex, ac, res from r order by (res = 'PASS'), n);
+end $$;
 
-  call switch_to(HELPER);
-  select count(*) into cnt from messages where id = MESSAGE_A;
-  call rec('helper reads messages for accessible event', '1', cnt::text);
-
-  -- RLS UPDATE policy should block helper: expect 0 rows affected
-  call switch_to(HELPER);
-  update messages set status = 'sent', sent_at = now() where id = MESSAGE_A;
-  get diagnostics cnt = row_count;
-  call rec('helper cannot update message (0 rows affected)', '0', cnt::text);
-
-  -- Owner can update
-  call switch_to(OWNER_A);
-  update messages set status = 'sent', sent_at = now() where id = MESSAGE_A;
-  get diagnostics cnt = row_count;
-  call rec('owner_a can update message status', '1', cnt::text);
-
-  -- ════════════════════════════════════════════════════════════════════
-  -- PROFILES — user cannot change own role (trigger protection)
-  -- ════════════════════════════════════════════════════════════════════
-
-  call switch_to(OWNER_A);
-  begin
-    update profiles set role = 'admin' where id = OWNER_A;
-    call rec('owner_a cannot elevate own role', 'BLOCKED', 'NOT BLOCKED');
-  exception when others then
-    call rec('owner_a cannot elevate own role', 'BLOCKED', 'BLOCKED');
-  end;
-
-  execute 'reset role';
-  select count(*) into cnt from profiles where id = OWNER_A and role = 'owner';
-  call rec('owner_a role still owner after blocked attempt', '1', cnt::text);
-
-  call switch_to(ADMIN_ID);
-  update profiles set full_name = 'Updated Name' where id = OWNER_A;
-  get diagnostics cnt = row_count;
-  call rec('admin can update any profile', '1', cnt::text);
-
-  -- ════════════════════════════════════════════════════════════════════
-  -- EVENT_MEMBERS — only owner/admin can add members
-  -- ════════════════════════════════════════════════════════════════════
-
-  call switch_to(HELPER);
-  begin
-    insert into event_members (event_id, user_id, role)
-      values (EVENT_B, HELPER, 'helper');
-    call rec('helper cannot add self to another event', 'BLOCKED', 'NOT BLOCKED');
-  exception when others then
-    call rec('helper cannot add self to another event', 'BLOCKED', 'BLOCKED');
-  end;
-
-  call switch_to(OWNER_A);
-  begin
-    insert into event_members (event_id, user_id, role)
-      values (EVENT_A, OWNER_B, 'helper');
-    call rec('owner_a can add member to own event', 'OK', 'OK');
-  exception when others then
-    call rec('owner_a can add member to own event', 'OK', 'BLOCKED');
-  end;
-
-  call switch_to(OWNER_A);
-  begin
-    insert into event_members (event_id, user_id, role)
-      values (EVENT_B, OWNER_A, 'helper');
-    call rec('owner_a cannot add member to another owner event', 'BLOCKED', 'NOT BLOCKED');
-  exception when others then
-    call rec('owner_a cannot add member to another owner event', 'BLOCKED', 'BLOCKED');
-  end;
-
-  -- ════════════════════════════════════════════════════════════════════
-  -- GUESTS — members read their events only
-  -- ════════════════════════════════════════════════════════════════════
-
-  call switch_to(HELPER);
-  select count(*) into cnt from guests where event_id = EVENT_A;
-  call rec('helper reads guests for accessible event', '1', cnt::text);
-
-  call switch_to(HELPER);
-  select count(*) into cnt from guests where event_id = EVENT_B;
-  call rec('helper cannot read guests for inaccessible event', '0', cnt::text);
-
-  execute 'reset role';
-
-end $tests$;
-
--- ── Results — displayed in the Results tab ────────────────────────────────
--- FAIL rows appear first.
-
-select
-  result,
-  test,
-  expected,
-  actual
-from _rls_results
-order by
-  case when result = 'FAIL' then 0 else 1 end,
-  ctid;
-
--- Summary row
-
-select
-  count(*) filter (where result = 'PASS') as passed,
-  count(*) filter (where result = 'FAIL') as failed,
-  count(*)                                as total
-from _rls_results;
-
-rollback;
+-- The only statement whose output the SQL Editor shows:
+select * from pg_temp.rls_tests();

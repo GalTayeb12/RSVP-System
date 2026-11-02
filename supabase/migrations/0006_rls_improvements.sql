@@ -1,11 +1,12 @@
 -- Migration 0006: RLS hardening
 -- Run in Supabase SQL Editor
+-- Safe to run more than once (idempotent).
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- 1. can_manage_event — owner or admin only (not helper)
 -- ══════════════════════════════════════════════════════════════════════════════
 
-create function can_manage_event(e uuid) returns boolean
+create or replace function can_manage_event(e uuid) returns boolean
 language sql stable security definer set search_path = public as $$
   select is_admin()
       or exists (select 1 from events where id = e and owner_id = auth.uid());
@@ -15,17 +16,21 @@ $$;
 -- 2. campaigns: helpers can read, only owners/admins can write
 -- ══════════════════════════════════════════════════════════════════════════════
 
-drop policy "event campaigns" on campaigns;
+drop policy if exists "event campaigns" on campaigns;
 
+drop policy if exists "read campaigns" on campaigns;
 create policy "read campaigns" on campaigns
   for select using (can_access_event(event_id));
 
+drop policy if exists "manage campaigns insert" on campaigns;
 create policy "manage campaigns insert" on campaigns
   for insert with check (can_manage_event(event_id));
 
+drop policy if exists "manage campaigns update" on campaigns;
 create policy "manage campaigns update" on campaigns
   for update using (can_manage_event(event_id));
 
+drop policy if exists "manage campaigns delete" on campaigns;
 create policy "manage campaigns delete" on campaigns
   for delete using (can_manage_event(event_id));
 
@@ -33,8 +38,9 @@ create policy "manage campaigns delete" on campaigns
 -- 3. messages: helpers can read, only owners/admins can write
 -- ══════════════════════════════════════════════════════════════════════════════
 
-drop policy "guest messages" on messages;
+drop policy if exists "guest messages" on messages;
 
+drop policy if exists "read messages" on messages;
 create policy "read messages" on messages
   for select
   using (
@@ -44,6 +50,7 @@ create policy "read messages" on messages
     )
   );
 
+drop policy if exists "manage messages insert" on messages;
 create policy "manage messages insert" on messages
   for insert
   with check (
@@ -53,6 +60,7 @@ create policy "manage messages insert" on messages
     )
   );
 
+drop policy if exists "manage messages update" on messages;
 create policy "manage messages update" on messages
   for update
   using (
@@ -62,6 +70,7 @@ create policy "manage messages update" on messages
     )
   );
 
+drop policy if exists "manage messages delete" on messages;
 create policy "manage messages delete" on messages
   for delete
   using (
@@ -76,7 +85,7 @@ create policy "manage messages delete" on messages
 --    WITH CHECK on new row: new owner_id must equal current user (or be admin)
 -- ══════════════════════════════════════════════════════════════════════════════
 
-drop policy "owner updates event" on events;
+drop policy if exists "owner updates event" on events;
 
 create policy "owner updates event" on events
   for update
@@ -92,7 +101,7 @@ create policy "owner updates event" on events
 --    Admin bypasses this because admin uses the service role key in code.
 -- ══════════════════════════════════════════════════════════════════════════════
 
-create function prevent_role_self_change() returns trigger language plpgsql
+create or replace function prevent_role_self_change() returns trigger language plpgsql
 security definer set search_path = public as $$
 begin
   -- Block if the caller is authenticated (not postgres/service_role),
@@ -106,6 +115,7 @@ begin
   return new;
 end $$;
 
+drop trigger if exists profiles_prevent_role_self_change on profiles;
 create trigger profiles_prevent_role_self_change
   before update on profiles
   for each row execute function prevent_role_self_change();
@@ -124,6 +134,7 @@ drop policy if exists "event members can upload invitations"  on storage.objects
 drop policy if exists "event members can update invitations"  on storage.objects;
 drop policy if exists "event members can delete invitations"  on storage.objects;
 
+drop policy if exists "event managers can upload invitations" on storage.objects;
 create policy "event managers can upload invitations"
   on storage.objects for insert to authenticated
   with check (
@@ -131,6 +142,7 @@ create policy "event managers can upload invitations"
     and can_manage_event((storage.foldername(name))[1]::uuid)
   );
 
+drop policy if exists "event managers can update invitations" on storage.objects;
 create policy "event managers can update invitations"
   on storage.objects for update to authenticated
   using (
@@ -138,6 +150,7 @@ create policy "event managers can update invitations"
     and can_manage_event((storage.foldername(name))[1]::uuid)
   );
 
+drop policy if exists "event managers can delete invitations" on storage.objects;
 create policy "event managers can delete invitations"
   on storage.objects for delete to authenticated
   using (
