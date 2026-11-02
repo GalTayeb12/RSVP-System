@@ -16,7 +16,8 @@
   --color-accent: var(--accent);
   --color-card: var(--card);
   --color-border: var(--border);
-  --font-sans: "Heebo", "Assistant", "Segoe UI", Arial, sans-serif;
+  --font-sans: var(--font-heebo), "Heebo", "Assistant", "Segoe UI", Arial, sans-serif;
+  --font-display: var(--font-display), "Frank Ruhl Libre", serif;
 }
 
 body {

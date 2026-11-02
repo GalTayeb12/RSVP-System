@@ -2,7 +2,11 @@ import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import LogoutButton from '@/components/LogoutButton'
+import DashboardClient from './DashboardClient'
 import EventClient from './EventClient'
+import RsvpSettingsClient from './RsvpSettingsClient'
+import type { RsvpSettings } from '@/lib/rsvp-settings'
+import { DEFAULT_RSVP_SETTINGS } from '@/lib/rsvp-settings'
 
 export const instant = false
 
@@ -21,11 +25,44 @@ export default async function EventPage({
 
   const { data: event } = await supabase
     .from('events')
-    .select('*')
+    .select(
+      'id, title, host_names, event_date, venue_name, venue_address, waze_url, invitation_image_url, rsvp_deadline, rsvp_settings',
+    )
     .eq('id', id)
     .single()
 
   if (!event) notFound()
+
+  const { data: guests } = await supabase
+    .from('guests')
+    .select(
+      'id, first_name, last_name, phone, side, group_name, invited_count, attending_count, status, opted_out, rsvp_token, rsvp_answers, responded_at',
+    )
+    .eq('event_id', id)
+    .order('created_at')
+
+  const { data: recentHistory } = await supabase
+    .from('rsvp_history')
+    .select('id, status, attending_count, created_at, guest_id, guests!inner(first_name, last_name, event_id)')
+    .eq('guests.event_id', id)
+    .order('created_at', { ascending: false })
+    .limit(5)
+
+  const guestList = guests ?? []
+
+  type HistoryEntry = {
+    id: string
+    status: string
+    attending_count: number
+    created_at: string
+    guest_id: string
+    guests: { first_name: string; last_name: string | null } | null
+  }
+  const history = ((recentHistory ?? []) as unknown as HistoryEntry[])
+  const rsvpSettings: RsvpSettings =
+    event.rsvp_settings
+      ? (event.rsvp_settings as unknown as RsvpSettings)
+      : DEFAULT_RSVP_SETTINGS
 
   return (
     <div className="min-h-screen bg-background">
@@ -44,43 +81,15 @@ export default async function EventPage({
         </div>
       </header>
 
-      <main className="mx-auto max-w-2xl p-4 space-y-4">
-        <Link
-          href={`/events/${id}/guests`}
-          className="flex items-center justify-between rounded-2xl border border-accent/40 bg-card p-4 transition hover:border-accent"
-        >
-          <span className="font-medium">ניהול מוזמנים</span>
-          <span className="text-muted">←</span>
-        </Link>
-
-        <div className="rounded-2xl border border-border bg-card p-6">
-          <dl className="space-y-5">
-            <Row label="מארחים" value={event.host_names} />
-            {event.event_date && (
-              <Row
-                label="תאריך"
-                value={new Date(event.event_date).toLocaleDateString('he-IL', {
-                  weekday: 'long',
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
-                })}
-              />
-            )}
-            {event.venue_name && (
-              <Row label="אולם" value={event.venue_name} />
-            )}
-            {event.venue_address && (
-              <Row label="כתובת" value={event.venue_address} />
-            )}
-            {event.plate_price != null && (
-              <Row label="מחיר מנה" value={`₪${event.plate_price}`} />
-            )}
-            {event.waze_url && (
-              <Row label="Waze" value={event.waze_url} />
-            )}
-          </dl>
-        </div>
+      <main className="mx-auto max-w-2xl p-4 pb-12 space-y-4">
+        <DashboardClient
+          eventId={id}
+          guests={guestList}
+          recentHistory={history}
+          eventDate={event.event_date ?? null}
+          rsvpDeadline={event.rsvp_deadline ?? null}
+          rsvpSettings={rsvpSettings}
+        />
 
         <EventClient
           eventId={id}
@@ -88,17 +97,12 @@ export default async function EventPage({
           currentDeadline={event.rsvp_deadline ?? null}
           eventDate={event.event_date ?? null}
         />
+
+        <RsvpSettingsClient
+          eventId={id}
+          initialSettings={rsvpSettings}
+        />
       </main>
-
-    </div>
-  )
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-xs font-medium text-muted">{label}</dt>
-      <dd className="mt-0.5 font-medium">{value}</dd>
     </div>
   )
 }

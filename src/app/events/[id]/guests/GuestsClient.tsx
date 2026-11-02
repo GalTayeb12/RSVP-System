@@ -10,12 +10,18 @@ import GuestForm, { type GuestRow } from './GuestForm'
 type Guest = GuestRow & {
   status: 'pending' | 'attending' | 'declined' | 'maybe'
   attending_count: number
+  opted_out: boolean
+  rsvp_answers: { transport?: { needs_transport?: boolean } } | null
 }
 
 type Props = {
   eventId: string
   guests: Guest[]
   existingGroups: string[]
+  initialStatus?: string
+  initialSide?: string
+  initialLandline?: boolean
+  initialTransport?: boolean
 }
 
 const SIDE_LABEL: Record<string, string> = {
@@ -40,16 +46,21 @@ export default function GuestsClient({
   eventId,
   guests,
   existingGroups,
+  initialStatus = '',
+  initialSide = '',
+  initialLandline = false,
+  initialTransport = false,
 }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
   // Filters
   const [search, setSearch] = useState('')
-  const [filterSide, setFilterSide] = useState('')
+  const [filterSide, setFilterSide] = useState(initialSide)
   const [filterGroup, setFilterGroup] = useState('')
-  const [filterStatus, setFilterStatus] = useState('')
-  const [filterLandline, setFilterLandline] = useState(false)
+  const [filterStatus, setFilterStatus] = useState(initialStatus)
+  const [filterLandline, setFilterLandline] = useState(initialLandline)
+  const [filterTransport, setFilterTransport] = useState(initialTransport)
 
   // Form visibility
   const [showForm, setShowForm] = useState(false)
@@ -81,9 +92,10 @@ export default function GuestsClient({
       if (filterGroup && g.group_name !== filterGroup) return false
       if (filterStatus && g.status !== filterStatus) return false
       if (filterLandline && !isLandline(g.phone)) return false
+      if (filterTransport && !g.rsvp_answers?.transport?.needs_transport) return false
       return true
     })
-  }, [guests, search, filterSide, filterGroup, filterStatus, filterLandline])
+  }, [guests, search, filterSide, filterGroup, filterStatus, filterLandline, filterTransport])
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   function handleFormSuccess() {
@@ -198,6 +210,12 @@ export default function GuestsClient({
           className={`rounded-lg border px-4 py-2 text-sm transition ${filterLandline ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-border hover:bg-background'}`}
         >
           מספרים קוויים
+        </button>
+        <button
+          onClick={() => setFilterTransport((v) => !v)}
+          className={`rounded-lg border px-4 py-2 text-sm transition ${filterTransport ? 'border-accent bg-accent/10 text-accent' : 'border-border hover:bg-background'}`}
+        >
+          הסעות
         </button>
         <button
           onClick={() => {

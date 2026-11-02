@@ -8,10 +8,13 @@ export const instant = false
 
 export default async function GuestsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams: Promise<Record<string, string | undefined>>
 }) {
   const { id } = await params
+  const sp = await searchParams
   const supabase = await createClient()
 
   const {
@@ -30,14 +33,13 @@ export default async function GuestsPage({
   const { data: guests } = await supabase
     .from('guests')
     .select(
-      'id, first_name, last_name, phone, side, group_name, invited_count, attending_count, status, note, rsvp_token, responded_at',
+      'id, first_name, last_name, phone, side, group_name, invited_count, attending_count, status, note, opted_out, rsvp_token, rsvp_answers, responded_at',
     )
     .eq('event_id', id)
     .order('created_at')
 
   const guestList = guests ?? []
 
-  // Collect unique, non-empty group names for autocomplete
   const existingGroups = [
     ...new Set(
       guestList
@@ -68,6 +70,10 @@ export default async function GuestsPage({
           eventId={id}
           guests={guestList}
           existingGroups={existingGroups}
+          initialStatus={sp.status ?? ''}
+          initialSide={sp.side ?? ''}
+          initialLandline={sp.phone === 'landline'}
+          initialTransport={sp.transport === 'yes'}
         />
       </main>
     </div>

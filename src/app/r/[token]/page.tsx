@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { createAdminClient } from '@/lib/supabase/admin'
 import RsvpClient from './RsvpClient'
+import { DEFAULT_RSVP_SETTINGS, type RsvpSettings, type RsvpAnswers } from '@/lib/rsvp-settings'
 
 export const instant = false
 
@@ -45,8 +46,8 @@ export default async function RsvpPage({
   const { data: guest } = await supabase
     .from('guests')
     .select(
-      `id, first_name, invited_count, status, attending_count, meal_notes, note, opted_out, responded_at,
-       events(title, host_names, event_date, venue_name, venue_address, waze_url, invitation_image_url, rsvp_deadline)`,
+      `id, first_name, invited_count, status, attending_count, rsvp_answers, opted_out, responded_at,
+       events(title, host_names, event_date, venue_name, venue_address, waze_url, invitation_image_url, rsvp_deadline, rsvp_settings)`,
     )
     .eq('rsvp_token', token)
     .maybeSingle()
@@ -58,7 +59,6 @@ export default async function RsvpPage({
         className="flex min-h-screen items-center justify-center bg-background p-6 text-center"
       >
         <div>
-          <p className="text-5xl">🔗</p>
           <h1 className="mt-4 text-xl font-bold">הקישור לא תקין</h1>
           <p className="mt-2 text-sm text-muted">
             ייתכן שהקישור שגוי או שפג תוקפו.
@@ -77,6 +77,7 @@ export default async function RsvpPage({
     waze_url: string | null
     invitation_image_url: string | null
     rsvp_deadline: string | null
+    rsvp_settings: Record<string, unknown> | null
   }
 
   const ev = guest.events as unknown as EventShape
@@ -88,8 +89,7 @@ export default async function RsvpPage({
       invitedCount={guest.invited_count}
       currentStatus={guest.status as 'pending' | 'attending' | 'declined' | 'maybe'}
       currentAttendingCount={guest.attending_count}
-      currentMealNotes={guest.meal_notes ?? ''}
-      currentNote={guest.note ?? ''}
+      currentRsvpAnswers={guest.rsvp_answers as RsvpAnswers | null ?? null}
       optedOut={guest.opted_out}
       respondedAt={guest.responded_at}
       event={{
@@ -102,6 +102,7 @@ export default async function RsvpPage({
         invitationImageUrl: ev.invitation_image_url,
         rsvpDeadline: ev.rsvp_deadline,
       }}
+      rsvpSettings={ev.rsvp_settings ? ev.rsvp_settings as unknown as RsvpSettings : DEFAULT_RSVP_SETTINGS}
     />
   )
 }

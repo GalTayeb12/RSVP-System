@@ -132,22 +132,6 @@ export default function EventForm({ owners }: { owners: Owner[] }) {
               className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
             />
           </div>
-          <div>
-            <label
-              htmlFor="plate_price"
-              className="mb-1.5 block text-sm font-medium"
-            >
-              מחיר מנה (₪)
-            </label>
-            <input
-              id="plate_price"
-              name="plate_price"
-              type="number"
-              min="0"
-              step="0.01"
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-            />
-          </div>
         </div>
 
         <button

@@ -96,8 +96,6 @@ export async function createEvent(
   const venueName = (formData.get('venue_name') as string)?.trim() || null
   const venueAddress =
     (formData.get('venue_address') as string)?.trim() || null
-  const platePriceRaw = formData.get('plate_price') as string
-  const platePrice = platePriceRaw ? parseFloat(platePriceRaw) : null
   const ownerId = formData.get('owner_id') as string
 
   if (!title || !hostNames || !eventDate || !ownerId) {
@@ -111,7 +109,6 @@ export async function createEvent(
     event_date: eventDate,
     venue_name: venueName,
     venue_address: venueAddress,
-    plate_price: platePrice,
     owner_id: ownerId,
   })
 
