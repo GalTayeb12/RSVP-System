@@ -37,6 +37,8 @@ export async function proxy(request: NextRequest) {
     pathname === '/' ||
     pathname === '/login' ||
     pathname.startsWith('/r/') ||
+    pathname === '/privacy' ||
+    pathname === '/data-deletion' ||
     // Webhook is self-authenticating (verify token on GET, HMAC signature on POST)
     pathname === '/api/whatsapp/webhook'
 

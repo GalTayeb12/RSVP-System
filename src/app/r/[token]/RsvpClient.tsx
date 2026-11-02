@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import Link from 'next/link'
 import {
   Calendar,
   MapPin,
@@ -731,6 +732,17 @@ export default function RsvpClient({
             </button>
           </div>
         )}
+
+        {/* Legal footer */}
+        <div className="pt-4 text-center text-xs text-muted space-x-2 rtl:space-x-reverse">
+          <Link href="/privacy" className="underline underline-offset-2 hover:text-foreground">
+            מדיניות פרטיות
+          </Link>
+          <span>·</span>
+          <Link href="/data-deletion" className="underline underline-offset-2 hover:text-foreground">
+            מחיקת מידע
+          </Link>
+        </div>
       </div>
     </div>
   )

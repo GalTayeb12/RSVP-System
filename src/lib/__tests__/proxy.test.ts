@@ -39,6 +39,18 @@ describe('proxy — public paths (no auth required)', () => {
     expect(res.status).not.toBe(307)
   })
 
+  it('/privacy is accessible without auth', async () => {
+    const res = await proxy(makeRequest('/privacy'))
+    expect(res.status).not.toBe(307)
+    expect(res.headers.get('location')).toBeNull()
+  })
+
+  it('/data-deletion is accessible without auth', async () => {
+    const res = await proxy(makeRequest('/data-deletion'))
+    expect(res.status).not.toBe(307)
+    expect(res.headers.get('location')).toBeNull()
+  })
+
   it('/api/whatsapp/webhook GET does NOT redirect without cookies', async () => {
     const res = await proxy(makeRequest('/api/whatsapp/webhook'))
     expect(res.status).not.toBe(307)
