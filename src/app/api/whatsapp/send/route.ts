@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendWhatsAppTemplate, isOverDailyLimit, maskPhone } from '@/lib/whatsapp'
+import { coupleDisplayName } from '@/lib/couple-names'
 
 const BATCH_SIZE = 20
 
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
   if (!campaign) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 })
 
   const [{ data: event }, { data: profile }] = await Promise.all([
-    supabase.from('events').select('id, owner_id, host_names, event_date, venue_name, invitation_image_url').eq('id', campaign.event_id).single(),
+    supabase.from('events').select('id, owner_id, host_names, partner_a_name, partner_b_name, event_date, venue_name, invitation_image_url').eq('id', campaign.event_id).single(),
     supabase.from('profiles').select('role').eq('id', user.id).single(),
   ])
 
@@ -114,7 +115,7 @@ export async function POST(request: NextRequest) {
       phone:              guest.phone,
       kind:               kind as 'invitation' | 'reminder' | 'event_day' | 'thank_you',
       guestName:          guest.first_name,
-      hostNames:          event.host_names ?? '',
+      hostNames:          coupleDisplayName(event),
       eventDate:          formattedDate,
       venueName:          event.venue_name ?? '',
       rsvpToken:          guest.rsvp_token,

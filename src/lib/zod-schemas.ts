@@ -47,8 +47,12 @@ export const createUserSchema = z.object({
 export const createEventSchema = z.object({
   title: z.string().min(1, 'כותרת היא שדה חובה').max(200),
   host_names: z.string().min(1, 'שמות המארחים הם שדה חובה').max(200),
+  partner_a_name: z.string().max(200).optional(),
+  partner_b_name: z.string().max(200).optional(),
   event_date: z.string().min(1, 'תאריך הוא שדה חובה'),
   venue_name: z.string().max(200).optional(),
   venue_address: z.string().max(400).optional(),
+  waze_url: z.string().max(1000).optional(),
+  gift_url: z.string().max(1000).optional(),
   owner_id: z.string().uuid('יש לבחור בעלים תקין'),
 })

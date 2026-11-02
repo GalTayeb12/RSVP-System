@@ -252,6 +252,17 @@ begin
     acts := array_append(acts, (pg_temp.run_as(u_ownerA, format(
       'insert into storage.objects (bucket_id, name) values (''invitations'', %L)', e_A || '/rls-test.png')))::text);
 
+    -- partner names (migration 0008): owner can update own event, owner B cannot update event A
+    names := array_append(names, ('Owner A can update partner_a_name on own event')::text);
+    exps := array_append(exps, ('ok:1')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_ownerA, format(
+      'update events set partner_a_name = ''נטע'' where id = %L', e_A)))::text);
+
+    names := array_append(names, ('Owner B cannot update partner_a_name on event A')::text);
+    exps := array_append(exps, ('ok:0')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_ownerB, format(
+      'update events set partner_a_name = ''שרה'' where id = %L', e_A)))::text);
+
     -- webhook_events: service-role only (RLS enabled, no policies)
     names := array_append(names, ('Authenticated user cannot read webhook_events')::text);
     exps := array_append(exps, ('ok:0')::text);

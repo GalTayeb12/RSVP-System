@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import LogoutButton from '@/components/LogoutButton'
+import { coupleDisplayName } from '@/lib/couple-names'
 
 export const instant = false
 
@@ -15,7 +16,7 @@ export default async function EventsPage() {
   const [{ data: events }, { data: profile }] = await Promise.all([
     supabase
       .from('events')
-      .select('id, title, host_names, event_date, venue_name')
+      .select('id, title, host_names, partner_a_name, partner_b_name, event_date, venue_name')
       .order('event_date'),
     supabase.from('profiles').select('role').eq('id', user.id).single(),
   ])
@@ -50,7 +51,7 @@ export default async function EventsPage() {
                   className="block rounded-2xl border border-border bg-card p-5 transition hover:border-accent"
                 >
                   <p className="font-semibold">{event.title}</p>
-                  <p className="mt-0.5 text-sm text-muted">{event.host_names}</p>
+                  <p className="mt-0.5 text-sm text-muted">{coupleDisplayName(event)}</p>
                   {event.event_date && (
                     <p className="mt-0.5 text-sm text-muted">
                       {new Date(event.event_date).toLocaleDateString('he-IL', {

@@ -87,6 +87,7 @@ export default function DashboardClient({
   // Initialized to 0 so Date.now() never runs during SSR prerender.
   // Set to the real timestamp on the client after first paint.
   const [now, setNow] = useState(0)
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setNow(Date.now()) }, [])
 
   // Realtime subscription

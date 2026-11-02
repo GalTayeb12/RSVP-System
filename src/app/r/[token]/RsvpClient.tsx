@@ -23,6 +23,8 @@ type EventInfo = {
   venueName: string | null
   venueAddress: string | null
   wazeUrl: string | null
+  giftUrl: string | null
+  showSeating: boolean
   invitationImageUrl: string | null
   rsvpDeadline: string | null
 }

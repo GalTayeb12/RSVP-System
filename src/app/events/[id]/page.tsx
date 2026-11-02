@@ -27,7 +27,7 @@ export default async function EventPage({
     supabase
       .from('events')
       .select(
-        'id, title, host_names, event_date, venue_name, venue_address, waze_url, invitation_image_url, rsvp_deadline, rsvp_settings, owner_id',
+        'id, title, host_names, partner_a_name, partner_b_name, event_date, venue_name, venue_address, waze_url, gift_url, show_seating, invitation_image_url, rsvp_deadline, rsvp_settings, owner_id',
       )
       .eq('id', id)
       .single(),
@@ -111,6 +111,13 @@ export default async function EventPage({
           currentImageUrl={event.invitation_image_url ?? null}
           currentDeadline={event.rsvp_deadline ?? null}
           eventDate={event.event_date ?? null}
+          partnerAName={event.partner_a_name ?? null}
+          partnerBName={event.partner_b_name ?? null}
+          venueName={event.venue_name ?? null}
+          venueAddress={event.venue_address ?? null}
+          wazeUrl={event.waze_url ?? null}
+          giftUrl={event.gift_url ?? null}
+          showSeating={event.show_seating ?? false}
         />
 
         <RsvpSettingsClient

@@ -6,6 +6,7 @@ import { isWhatsAppConfigured } from '@/lib/whatsapp'
 import LogoutButton from '@/components/LogoutButton'
 import SendPageClient from './SendPageClient'
 import type { CampaignKind } from '@/lib/campaign'
+import { coupleDisplayName } from '@/lib/couple-names'
 
 export const instant = false
 
@@ -44,7 +45,7 @@ export default async function SendPage({
   const [{ data: event }, { data: profile }] = await Promise.all([
     supabase
       .from('events')
-      .select('id, title, host_names, event_date, venue_name, owner_id')
+      .select('id, title, host_names, partner_a_name, partner_b_name, event_date, venue_name, owner_id')
       .eq('id', id)
       .single(),
     supabase.from('profiles').select('role').eq('id', user.id).single(),
@@ -119,7 +120,7 @@ export default async function SendPage({
   ].sort()
 
   const eventInfo: EventInfo = {
-    host_names: event.host_names ?? '',
+    host_names: coupleDisplayName(event),
     event_date: event.event_date ?? null,
     venue_name: event.venue_name ?? '',
   }

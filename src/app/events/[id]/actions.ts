@@ -58,6 +58,44 @@ export async function updateEventDeadline(
   return { success: true }
 }
 
+export async function updateEventDetails(
+  eventId: string,
+  data: {
+    partner_a_name: string | null
+    partner_b_name: string | null
+    event_date: string | null
+    venue_name: string | null
+    venue_address: string | null
+    waze_url: string | null
+    gift_url: string | null
+    show_seating: boolean
+  },
+): Promise<{ success: true } | { error: string }> {
+  const supabase = await getAccessibleClient(eventId)
+  if (!supabase) return { error: 'אין גישה לאירוע' }
+
+  const { error } = await supabase
+    .from('events')
+    .update({
+      partner_a_name: data.partner_a_name || null,
+      partner_b_name: data.partner_b_name || null,
+      event_date: data.event_date ? new Date(data.event_date).toISOString() : null,
+      venue_name: data.venue_name || null,
+      venue_address: data.venue_address || null,
+      waze_url: data.waze_url || null,
+      gift_url: data.gift_url || null,
+      show_seating: data.show_seating,
+    })
+    .eq('id', eventId)
+
+  if (error) {
+    console.error('[updateEventDetails]', error.message)
+    return { error: 'שגיאה בשמירה. נסה שנית.' }
+  }
+  revalidatePath(`/events/${eventId}`)
+  return { success: true }
+}
+
 export async function updateRsvpSettings(
   eventId: string,
   settings: RsvpSettings,

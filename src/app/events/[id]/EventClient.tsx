@@ -2,13 +2,27 @@
 
 import { useState, useTransition } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { updateEventImage, updateEventDeadline } from './actions'
+import { updateEventImage, updateEventDeadline, updateEventDetails } from './actions'
 
 type Props = {
   eventId: string
   currentImageUrl: string | null
   currentDeadline: string | null
   eventDate: string | null
+  partnerAName: string | null
+  partnerBName: string | null
+  venueName: string | null
+  venueAddress: string | null
+  wazeUrl: string | null
+  giftUrl: string | null
+  showSeating: boolean
+}
+
+function toDatetimeLocal(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 export default function EventClient({
@@ -16,11 +30,20 @@ export default function EventClient({
   currentImageUrl,
   currentDeadline,
   eventDate,
+  partnerAName,
+  partnerBName,
+  venueName,
+  venueAddress,
+  wazeUrl,
+  giftUrl,
+  showSeating,
 }: Props) {
+  // ── Image ────────────────────────────────────────────────────────────────────
   const [imageUrl, setImageUrl] = useState(currentImageUrl)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
 
+  // ── Deadline ─────────────────────────────────────────────────────────────────
   const defaultDeadline = (() => {
     if (currentDeadline) return currentDeadline.slice(0, 16)
     if (eventDate) {
@@ -33,10 +56,27 @@ export default function EventClient({
   const [deadlineVal, setDeadlineVal] = useState(defaultDeadline)
   const [deadlineSaved, setDeadlineSaved] = useState(false)
   const [deadlineError, setDeadlineError] = useState('')
-  const [isPending, startTransition] = useTransition()
+  const [isDeadlinePending, startDeadlineTransition] = useTransition()
+
+  // ── Event details ────────────────────────────────────────────────────────────
+  const [detailsState, setDetailsState] = useState({
+    partnerAName: partnerAName ?? '',
+    partnerBName: partnerBName ?? '',
+    eventDate: toDatetimeLocal(eventDate),
+    venueName: venueName ?? '',
+    venueAddress: venueAddress ?? '',
+    wazeUrl: wazeUrl ?? '',
+    giftUrl: giftUrl ?? '',
+    showSeating: showSeating,
+  })
+  const [detailsSaved, setDetailsSaved] = useState(false)
+  const [detailsError, setDetailsError] = useState('')
+  const [isDetailsPending, startDetailsTransition] = useTransition()
 
   const inputCls =
     'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent'
+
+  // ── Handlers ─────────────────────────────────────────────────────────────────
 
   async function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -86,7 +126,7 @@ export default function EventClient({
   function handleDeadlineSave() {
     setDeadlineError('')
     setDeadlineSaved(false)
-    startTransition(async () => {
+    startDeadlineTransition(async () => {
       const isoVal = deadlineVal ? new Date(deadlineVal).toISOString() : null
       const result = await updateEventDeadline(eventId, isoVal)
       if ('error' in result) setDeadlineError(result.error)
@@ -94,8 +134,138 @@ export default function EventClient({
     })
   }
 
+  function handleDetailsSave() {
+    setDetailsError('')
+    setDetailsSaved(false)
+    startDetailsTransition(async () => {
+      const result = await updateEventDetails(eventId, {
+        partner_a_name: detailsState.partnerAName || null,
+        partner_b_name: detailsState.partnerBName || null,
+        event_date: detailsState.eventDate || null,
+        venue_name: detailsState.venueName || null,
+        venue_address: detailsState.venueAddress || null,
+        waze_url: detailsState.wazeUrl || null,
+        gift_url: detailsState.giftUrl || null,
+        show_seating: detailsState.showSeating,
+      })
+      if ('error' in result) setDetailsError(result.error)
+      else setDetailsSaved(true)
+    })
+  }
+
   return (
     <div className="space-y-5">
+      {/* Event details */}
+      <div className="rounded-2xl border border-border bg-card p-5">
+        <h3 className="mb-4 font-semibold">פרטי האירוע</h3>
+        <div className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">
+                שם בן/בת הזוג הראשון/ה
+              </label>
+              <input
+                type="text"
+                value={detailsState.partnerAName}
+                onChange={(e) => { setDetailsState((s) => ({ ...s, partnerAName: e.target.value })); setDetailsSaved(false) }}
+                placeholder="נטע פרטוש"
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">
+                שם בן/בת הזוג השני/ה
+              </label>
+              <input
+                type="text"
+                value={detailsState.partnerBName}
+                onChange={(e) => { setDetailsState((s) => ({ ...s, partnerBName: e.target.value })); setDetailsSaved(false) }}
+                placeholder="רון אוטמזגין"
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">
+                תאריך ושעה
+              </label>
+              <input
+                type="datetime-local"
+                value={detailsState.eventDate}
+                onChange={(e) => { setDetailsState((s) => ({ ...s, eventDate: e.target.value })); setDetailsSaved(false) }}
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">אולם</label>
+              <input
+                type="text"
+                value={detailsState.venueName}
+                onChange={(e) => { setDetailsState((s) => ({ ...s, venueName: e.target.value })); setDetailsSaved(false) }}
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">כתובת</label>
+              <input
+                type="text"
+                value={detailsState.venueAddress}
+                onChange={(e) => { setDetailsState((s) => ({ ...s, venueAddress: e.target.value })); setDetailsSaved(false) }}
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">קישור Waze</label>
+              <input
+                type="url"
+                value={detailsState.wazeUrl}
+                onChange={(e) => { setDetailsState((s) => ({ ...s, wazeUrl: e.target.value })); setDetailsSaved(false) }}
+                placeholder="https://waze.com/ul/..."
+                className={inputCls}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1.5 block text-sm font-medium">
+                קישור למתנה <span className="text-xs text-muted">(ביט / פייבוקס / אשראי)</span>
+              </label>
+              <input
+                type="url"
+                value={detailsState.giftUrl}
+                onChange={(e) => { setDetailsState((s) => ({ ...s, giftUrl: e.target.value })); setDetailsSaved(false) }}
+                placeholder="https://bit.ly/..."
+                className={inputCls}
+              />
+            </div>
+          </div>
+
+          <label className="flex cursor-pointer items-center gap-3">
+            <div
+              role="switch"
+              aria-checked={detailsState.showSeating}
+              onClick={() => { setDetailsState((s) => ({ ...s, showSeating: !s.showSeating })); setDetailsSaved(false) }}
+              className={`relative h-6 w-11 rounded-full transition-colors focus:outline-none ${detailsState.showSeating ? 'bg-accent' : 'bg-border'}`}
+            >
+              <span
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${detailsState.showSeating ? 'translate-x-5' : 'translate-x-0.5'}`}
+              />
+            </div>
+            <span className="text-sm">הצגת לשונית הושבה למוזמנים</span>
+          </label>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleDetailsSave}
+              disabled={isDetailsPending}
+              className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background transition hover:opacity-90 disabled:opacity-50"
+            >
+              {detailsSaved ? '✓ נשמר' : isDetailsPending ? 'שומר…' : 'שמור פרטים'}
+            </button>
+          </div>
+          {detailsError && (
+            <p className="text-xs text-red-600">{detailsError}</p>
+          )}
+        </div>
+      </div>
+
       {/* Image upload */}
       <div className="rounded-2xl border border-border bg-card p-5">
         <h3 className="mb-4 font-semibold">תמונת הזמנה</h3>
@@ -169,10 +339,10 @@ export default function EventClient({
           />
           <button
             onClick={handleDeadlineSave}
-            disabled={isPending}
+            disabled={isDeadlinePending}
             className="shrink-0 rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background transition hover:opacity-90 disabled:opacity-50"
           >
-            {deadlineSaved ? '✓ נשמר' : isPending ? 'שומר…' : 'שמור'}
+            {deadlineSaved ? '✓ נשמר' : isDeadlinePending ? 'שומר…' : 'שמור'}
           </button>
         </div>
         {deadlineError && (

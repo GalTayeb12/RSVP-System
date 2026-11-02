@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import LogoutButton from '@/components/LogoutButton'
 import UserForm from './UserForm'
 import EventForm from './EventForm'
+import { coupleDisplayName } from '@/lib/couple-names'
 
 // Auth-protected page — always rendered at request time, never prerendered
 export const instant = false
@@ -29,7 +30,7 @@ export default async function AdminPage() {
 
   const { data: events } = await supabase
     .from('events')
-    .select('id, title, host_names, event_date, venue_name, owner_id')
+    .select('id, title, host_names, partner_a_name, partner_b_name, event_date, venue_name, owner_id')
     .order('event_date')
 
   const owners = (profiles ?? []).filter((p) => p.role === 'owner')
@@ -106,7 +107,7 @@ export default async function AdminPage() {
                     className="block rounded-2xl border border-border bg-card p-4 transition hover:border-accent"
                   >
                     <p className="font-semibold">{e.title}</p>
-                    <p className="mt-0.5 text-sm text-muted">{e.host_names}</p>
+                    <p className="mt-0.5 text-sm text-muted">{coupleDisplayName(e)}</p>
                     <p className="mt-0.5 text-sm text-muted">
                       {e.event_date
                         ? new Date(e.event_date).toLocaleDateString('he-IL')
@@ -140,7 +141,7 @@ export default async function AdminPage() {
                           />
                           {e.title}
                         </td>
-                        <td className="px-4 py-3 text-muted">{e.host_names}</td>
+                        <td className="px-4 py-3 text-muted">{coupleDisplayName(e)}</td>
                         <td className="px-4 py-3 text-muted">
                           {e.event_date
                             ? new Date(e.event_date).toLocaleDateString('he-IL')

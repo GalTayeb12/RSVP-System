@@ -94,7 +94,7 @@ export default function PrivacyPage() {
           <ul className="space-y-2 text-sm text-muted">
             <li className="flex gap-2">
               <span className="shrink-0 text-accent">•</span>
-              <span>כתיבת <strong className="text-foreground">"הסר"</strong> בתשובה להודעת הוואטסאפ שקיבלת.</span>
+              <span>כתיבת <strong className="text-foreground">&ldquo;הסר&rdquo;</strong> בתשובה להודעת הוואטסאפ שקיבלת.</span>
             </li>
             <li className="flex gap-2">
               <span className="shrink-0 text-accent">•</span>

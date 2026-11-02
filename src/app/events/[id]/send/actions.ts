@@ -9,6 +9,7 @@ import {
   type CampaignKind,
   type TemplateVars,
 } from '@/lib/campaign'
+import { coupleDisplayName } from '@/lib/couple-names'
 import { campaignInputSchema } from '@/lib/zod-schemas'
 import {
   isWhatsAppConfigured,
@@ -73,7 +74,7 @@ export async function createCampaignAction(
 
   const { data: event } = await supabase
     .from('events')
-    .select('host_names, event_date, venue_name')
+    .select('host_names, partner_a_name, partner_b_name, event_date, venue_name')
     .eq('id', eventId)
     .single()
 
@@ -90,7 +91,7 @@ export async function createCampaignAction(
   // Shared event variables
   const eventDate = event?.event_date ? new Date(event.event_date) : null
   const baseVars: TemplateVars = {
-    '{שמות_המארחים}': event?.host_names ?? '',
+    '{שמות_המארחים}': event ? coupleDisplayName(event) : '',
     '{תאריך}': eventDate
       ? eventDate.toLocaleDateString('he-IL', {
           year: 'numeric',

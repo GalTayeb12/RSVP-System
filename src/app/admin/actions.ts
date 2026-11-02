@@ -94,9 +94,13 @@ export async function createEvent(
   const raw = {
     title: (formData.get('title') as string)?.trim() ?? '',
     host_names: (formData.get('host_names') as string)?.trim() ?? '',
+    partner_a_name: (formData.get('partner_a_name') as string)?.trim() || undefined,
+    partner_b_name: (formData.get('partner_b_name') as string)?.trim() || undefined,
     event_date: (formData.get('event_date') as string) ?? '',
     venue_name: (formData.get('venue_name') as string)?.trim() || undefined,
     venue_address: (formData.get('venue_address') as string)?.trim() || undefined,
+    waze_url: (formData.get('waze_url') as string)?.trim() || undefined,
+    gift_url: (formData.get('gift_url') as string)?.trim() || undefined,
     owner_id: (formData.get('owner_id') as string) ?? '',
   }
 
@@ -104,15 +108,19 @@ export async function createEvent(
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? 'קלט לא תקין' }
   }
-  const { title, host_names, event_date, venue_name, venue_address, owner_id } = parsed.data
+  const { title, host_names, partner_a_name, partner_b_name, event_date, venue_name, venue_address, waze_url, gift_url, owner_id } = parsed.data
 
   const admin = createAdminClient()
   const { error } = await admin.from('events').insert({
     title,
     host_names,
-    event_date,
+    partner_a_name: partner_a_name ?? null,
+    partner_b_name: partner_b_name ?? null,
+    event_date: event_date ? new Date(event_date).toISOString() : null,
     venue_name: venue_name ?? null,
     venue_address: venue_address ?? null,
+    waze_url: waze_url ?? null,
+    gift_url: gift_url ?? null,
     owner_id,
   })
 

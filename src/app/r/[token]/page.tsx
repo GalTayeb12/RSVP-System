@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import RsvpClient from './RsvpClient'
 import { DEFAULT_RSVP_SETTINGS, type RsvpSettings, type RsvpAnswers } from '@/lib/rsvp-settings'
 import { tokenSchema } from '@/lib/zod-schemas'
+import { coupleDisplayName } from '@/lib/couple-names'
 
 export const instant = false
 
@@ -59,7 +60,7 @@ export default async function RsvpPage({
     .from('guests')
     .select(
       `id, first_name, invited_count, status, attending_count, rsvp_answers, opted_out, responded_at,
-       events(title, host_names, event_date, venue_name, venue_address, waze_url, invitation_image_url, rsvp_deadline, rsvp_settings)`,
+       events(title, host_names, partner_a_name, partner_b_name, event_date, venue_name, venue_address, waze_url, gift_url, show_seating, invitation_image_url, rsvp_deadline, rsvp_settings)`,
     )
     .eq('rsvp_token', token)
     .maybeSingle()
@@ -83,10 +84,14 @@ export default async function RsvpPage({
   type EventShape = {
     title: string
     host_names: string | null
+    partner_a_name: string | null
+    partner_b_name: string | null
     event_date: string | null
     venue_name: string | null
     venue_address: string | null
     waze_url: string | null
+    gift_url: string | null
+    show_seating: boolean
     invitation_image_url: string | null
     rsvp_deadline: string | null
     rsvp_settings: Record<string, unknown> | null
@@ -106,11 +111,13 @@ export default async function RsvpPage({
       respondedAt={guest.responded_at}
       event={{
         title: ev.title,
-        hostNames: ev.host_names,
+        hostNames: coupleDisplayName(ev),
         eventDate: ev.event_date,
         venueName: ev.venue_name,
         venueAddress: ev.venue_address,
         wazeUrl: ev.waze_url,
+        giftUrl: ev.gift_url,
+        showSeating: ev.show_seating,
         invitationImageUrl: ev.invitation_image_url,
         rsvpDeadline: ev.rsvp_deadline,
       }}

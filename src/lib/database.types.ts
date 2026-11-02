@@ -35,10 +35,14 @@ export type Database = {
           owner_id: string
           title: string
           host_names: string | null
+          partner_a_name: string | null
+          partner_b_name: string | null
           event_date: string | null
           venue_name: string | null
           venue_address: string | null
           waze_url: string | null
+          gift_url: string | null
+          show_seating: boolean
           invitation_image_url: string | null
           message_quota: number
           rsvp_deadline: string | null
@@ -50,10 +54,14 @@ export type Database = {
           owner_id: string
           title: string
           host_names?: string | null
+          partner_a_name?: string | null
+          partner_b_name?: string | null
           event_date?: string | null
           venue_name?: string | null
           venue_address?: string | null
           waze_url?: string | null
+          gift_url?: string | null
+          show_seating?: boolean
           invitation_image_url?: string | null
           message_quota?: number
           rsvp_deadline?: string | null
@@ -65,10 +73,14 @@ export type Database = {
           owner_id?: string
           title?: string
           host_names?: string | null
+          partner_a_name?: string | null
+          partner_b_name?: string | null
           event_date?: string | null
           venue_name?: string | null
           venue_address?: string | null
           waze_url?: string | null
+          gift_url?: string | null
+          show_seating?: boolean
           invitation_image_url?: string | null
           message_quota?: number
           rsvp_deadline?: string | null
