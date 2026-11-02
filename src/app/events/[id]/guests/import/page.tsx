@@ -42,7 +42,7 @@ export default async function ImportPage({
               href={`/events/${id}/guests`}
               className="text-sm text-muted transition hover:text-foreground"
             >
-              ← חזרה למוזמנים
+              → חזרה למוזמנים
             </Link>
             <h1 className="text-lg font-bold">ייבוא מאקסל</h1>
           </div>

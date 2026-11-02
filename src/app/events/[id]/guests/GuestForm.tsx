@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { addGuest, updateGuest, type GuestData } from './actions'
+import { normalizePhone, formatPhone, isLandline } from '@/lib/phone'
 
 export type GuestRow = {
   id: string
@@ -39,7 +40,16 @@ export default function GuestForm({
 }: Props) {
   const [state, setState] = useState<FormState>({})
   const [isPending, startTransition] = useTransition()
+  const [phoneVal, setPhoneVal] = useState(
+    editGuest?.phone ? formatPhone(editGuest.phone) : '',
+  )
   const isEdit = Boolean(editGuest)
+
+  const normalizedPhone = phoneVal.trim() ? normalizePhone(phoneVal) : null
+  const showLandlineWarning =
+    normalizedPhone && 'phone' in normalizedPhone
+      ? isLandline(normalizedPhone.phone)
+      : false
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -134,10 +144,16 @@ export default function GuestForm({
               type="tel"
               required
               dir="ltr"
-              defaultValue={editGuest?.phone ?? ''}
+              value={phoneVal}
+              onChange={(e) => setPhoneVal(e.target.value)}
               placeholder="050-123-4567"
               className={inputCls}
             />
+            {showLandlineWarning && (
+              <p className="mt-1 text-xs text-amber-600">
+                מספר קווי, אין וואטסאפ
+              </p>
+            )}
           </div>
           <div>
             <label className="mb-1.5 block text-sm font-medium">צד *</label>

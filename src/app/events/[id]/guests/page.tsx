@@ -55,7 +55,7 @@ export default async function GuestsPage({
               href={`/events/${id}`}
               className="text-sm text-muted transition hover:text-foreground"
             >
-              ← חזרה
+              → חזרה
             </Link>
             <h1 className="text-lg font-bold">מוזמנים — {event.title}</h1>
           </div>

@@ -1,4 +1,6 @@
 import { parsePhoneNumber, isValidPhoneNumber } from 'libphonenumber-js'
+// max metadata is needed for getType() — the lite build returns undefined for all types
+import { parsePhoneNumber as parsePhoneNumberMax } from 'libphonenumber-js/max'
 
 /**
  * Normalizes a raw phone input to E.164 format (+972501234567).
@@ -26,6 +28,19 @@ export function normalizePhone(
     return { phone: parsed.format('E.164') }
   } catch {
     return { error: `מספר טלפון לא תקין: "${raw}"` }
+  }
+}
+
+/**
+ * Returns true when the E.164 number is a landline (no WhatsApp).
+ * FIXED_LINE_OR_MOBILE is ambiguous (some IL numbers), treat as landline.
+ */
+export function isLandline(e164: string): boolean {
+  try {
+    const type = parsePhoneNumberMax(e164, 'IL').getType()
+    return type === 'FIXED_LINE' || type === 'FIXED_LINE_OR_MOBILE'
+  } catch {
+    return false
   }
 }
 

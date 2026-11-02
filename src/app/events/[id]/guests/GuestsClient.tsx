@@ -3,7 +3,7 @@
 import { useState, useTransition, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { formatPhone } from '@/lib/phone'
+import { formatPhone, isLandline } from '@/lib/phone'
 import { deleteGuest } from './actions'
 import GuestForm, { type GuestRow } from './GuestForm'
 
@@ -49,6 +49,7 @@ export default function GuestsClient({
   const [filterSide, setFilterSide] = useState('')
   const [filterGroup, setFilterGroup] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
+  const [filterLandline, setFilterLandline] = useState(false)
 
   // Form visibility
   const [showForm, setShowForm] = useState(false)
@@ -80,9 +81,10 @@ export default function GuestsClient({
       if (filterSide && g.side !== filterSide) return false
       if (filterGroup && g.group_name !== filterGroup) return false
       if (filterStatus && g.status !== filterStatus) return false
+      if (filterLandline && !isLandline(g.phone)) return false
       return true
     })
-  }, [guests, search, filterSide, filterGroup, filterStatus])
+  }, [guests, search, filterSide, filterGroup, filterStatus, filterLandline])
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   function handleFormSuccess() {
@@ -180,6 +182,12 @@ export default function GuestsClient({
           <option value="maybe">אולי</option>
         </select>
         <button
+          onClick={() => setFilterLandline((v) => !v)}
+          className={`rounded-lg border px-4 py-2 text-sm transition ${filterLandline ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-border hover:bg-background'}`}
+        >
+          מספרים קוויים
+        </button>
+        <button
           onClick={() => {
             setEditingGuest(null)
             setShowForm(true)
@@ -231,8 +239,13 @@ export default function GuestsClient({
                     <td className="px-4 py-3 font-medium">
                       {g.first_name} {g.last_name ?? ''}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs" dir="ltr">
-                      {formatPhone(g.phone)}
+                    <td className="px-4 py-3" dir="ltr">
+                      <span className="font-mono text-xs">{formatPhone(g.phone)}</span>
+                      {isLandline(g.phone) && (
+                        <span className="mr-1.5 inline-block rounded-full bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700">
+                          קווי
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-muted">
                       {SIDE_LABEL[g.side]}
@@ -275,6 +288,11 @@ export default function GuestsClient({
                     </p>
                     <p className="mt-0.5 font-mono text-xs text-muted" dir="ltr">
                       {formatPhone(g.phone)}
+                      {isLandline(g.phone) && (
+                        <span className="mr-1.5 inline-block rounded-full bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700 not-italic">
+                          קווי
+                        </span>
+                      )}
                     </p>
                     <p className="mt-1 text-xs text-muted">
                       {SIDE_LABEL[g.side]}

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import Script from 'next/script'
-import { normalizePhone, formatPhone } from '@/lib/phone'
+import { normalizePhone, formatPhone, isLandline } from '@/lib/phone'
 import { detectHeaders, normalizeSide, COLUMN_LABELS, COLUMN_FIELDS, type ColumnField } from '@/lib/headers'
 import { importGuests, type GuestData } from '../actions'
 
@@ -21,6 +21,7 @@ type ImportRow = {
   group_name: string | null
   invited_count: number
   note: string | null
+  is_landline: boolean // valid phone but not mobile — no WhatsApp
   status: 'valid' | 'invalid_phone' | 'dup_file' | 'dup_event' | 'skipped'
   dup_name?: string    // name of the existing/conflicting guest
 }
@@ -196,6 +197,7 @@ export default function ImportClient({ eventId, eventTitle, existingGuests }: Pr
         phone_raw,
         phone,
         phone_error,
+        is_landline: phone ? isLandline(phone) : false,
         side,
         group_name,
         invited_count,
@@ -235,6 +237,7 @@ export default function ImportClient({ eventId, eventTitle, existingGuests }: Pr
           phone_raw: newPhoneRaw,
           phone: newPhone,
           phone_error: '',
+          is_landline: isLandline(newPhone),
           status: existingName ? 'dup_event' : 'valid',
           dup_name: existingName,
         }
@@ -270,6 +273,7 @@ export default function ImportClient({ eventId, eventTitle, existingGuests }: Pr
   const invalidCount = rows.filter((r) => r.status === 'invalid_phone').length
   const dupCount = rows.filter((r) => r.status === 'dup_event' || r.status === 'dup_file').length
   const skippedCount = rows.filter((r) => r.status === 'skipped').length
+  const landlineCount = rows.filter((r) => r.is_landline && r.status === 'valid').length
 
   return (
     <>
@@ -338,7 +342,7 @@ export default function ImportClient({ eventId, eventTitle, existingGuests }: Pr
                 onClick={() => setStep('upload')}
                 className="text-sm text-muted hover:text-foreground"
               >
-                ← בחר קובץ אחר
+                → בחר קובץ אחר
               </button>
             </div>
 
@@ -392,7 +396,7 @@ export default function ImportClient({ eventId, eventTitle, existingGuests }: Pr
                 onClick={buildPreview}
                 className="rounded-lg bg-foreground px-5 py-2 text-sm font-medium text-background transition hover:opacity-90"
               >
-                תצוגה מקדימה ←
+                ← תצוגה מקדימה
               </button>
               <button
                 onClick={() => setStep('upload')}
@@ -413,7 +417,7 @@ export default function ImportClient({ eventId, eventTitle, existingGuests }: Pr
                 onClick={() => setStep('mapping')}
                 className="text-sm text-muted hover:text-foreground"
               >
-                ← חזרה להתאמה
+                → חזרה להתאמה
               </button>
             </div>
 
@@ -430,6 +434,11 @@ export default function ImportClient({ eventId, eventTitle, existingGuests }: Pr
               {dupCount > 0 && (
                 <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-700">
                   ⚠ {dupCount} כפילויות
+                </span>
+              )}
+              {landlineCount > 0 && (
+                <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-700">
+                  ☎ {landlineCount} קוויים
                 </span>
               )}
               {skippedCount > 0 && (
@@ -566,8 +575,11 @@ function PreviewRow({
       <td className="px-3 py-2.5 text-muted">{SIDE_LABEL[row.side]}</td>
       <td className="px-3 py-2.5 text-center">{row.invited_count}</td>
       <td className="px-3 py-2.5">
-        {row.status === 'valid' && (
+        {row.status === 'valid' && !row.is_landline && (
           <span className="text-xs text-green-600">✓ תקין</span>
+        )}
+        {row.status === 'valid' && row.is_landline && (
+          <span className="text-xs text-amber-600">מספר קווי, אין וואטסאפ</span>
         )}
         {row.status === 'invalid_phone' && (
           <span className="text-xs text-red-600">טלפון לא תקין</span>

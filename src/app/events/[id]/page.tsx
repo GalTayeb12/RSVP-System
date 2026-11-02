@@ -35,7 +35,7 @@ export default async function EventPage({
               href="/events"
               className="text-sm text-muted transition hover:text-foreground"
             >
-              ← חזרה
+              → חזרה
             </Link>
             <h1 className="text-lg font-bold">{event.title}</h1>
           </div>
