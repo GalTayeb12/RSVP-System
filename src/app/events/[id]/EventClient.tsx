@@ -175,23 +175,48 @@ export default function EventClient({
       // Process: resize main + create OG crop
       const { main: mainBlob, og: ogBlob } = await processImageForUpload(file)
 
-      // Upload main image
-      const mainPath = `${eventId}/invitation.jpg`
+      // Unique timestamped paths — long cache is safe because the name won't repeat
+      const ts = Date.now()
+      const mainPath = `${eventId}/invitation-${ts}.jpg`
+      const ogPath = `${eventId}/og-${ts}.jpg`
+
+      const uploadOpts = { contentType: 'image/jpeg', cacheControl: '31536000' }
+
       const { error: mainErr } = await supabase.storage
         .from('invitations')
-        .upload(mainPath, mainBlob, { upsert: true, contentType: 'image/jpeg' })
+        .upload(mainPath, mainBlob, uploadOpts)
       if (mainErr) throw new Error(mainErr.message)
 
-      // Upload OG image (1200×630 crop)
-      const ogPath = `${eventId}/og.jpg`
-      await supabase.storage
+      const { error: ogErr } = await supabase.storage
         .from('invitations')
-        .upload(ogPath, ogBlob, { upsert: true, contentType: 'image/jpeg' })
+        .upload(ogPath, ogBlob, uploadOpts)
+      if (ogErr) throw new Error(ogErr.message)
 
-      const { data: { publicUrl } } = supabase.storage.from('invitations').getPublicUrl(mainPath)
-      const result = await updateEventImage(eventId, publicUrl)
-      if ('error' in result) setUploadError(result.error)
-      else setImageUrl(publicUrl)
+      const { data: { publicUrl: newMainUrl } } = supabase.storage.from('invitations').getPublicUrl(mainPath)
+      const { data: { publicUrl: newOgUrl } } = supabase.storage.from('invitations').getPublicUrl(ogPath)
+
+      // Persist both URLs to the database
+      const result = await updateEventImage(eventId, newMainUrl, newOgUrl)
+      if ('error' in result) {
+        setUploadError(result.error)
+        setUploading(false)
+        return
+      }
+
+      // Delete all old files in this event's folder (everything except the two we just uploaded)
+      const { data: existingFiles } = await supabase.storage.from('invitations').list(eventId)
+      if (existingFiles && existingFiles.length > 0) {
+        const newNames = [`invitation-${ts}.jpg`, `og-${ts}.jpg`]
+        const toDelete = existingFiles
+          .filter((f) => !newNames.includes(f.name))
+          .map((f) => `${eventId}/${f.name}`)
+        if (toDelete.length > 0) {
+          await supabase.storage.from('invitations').remove(toDelete)
+        }
+      }
+
+      // Update UI immediately
+      setImageUrl(newMainUrl)
     } catch {
       setUploadError('שגיאה בעיבוד התמונה. נסה שנית.')
     }
@@ -203,18 +228,17 @@ export default function EventClient({
     if (!imageUrl) return
     setUploading(true)
     const supabase = createClient()
-    // Remove both main and OG images (also try legacy extension)
-    const filesToRemove: string[] = [
-      `${eventId}/invitation.jpg`,
-      `${eventId}/og.jpg`,
-    ]
-    const extMatch = imageUrl.match(/\/invitation\.(\w+)(?:\?|$)/)
-    if (extMatch && extMatch[1] !== 'jpg') {
-      filesToRemove.push(`${eventId}/invitation.${extMatch[1]}`)
+    // List and delete all files for this event
+    const { data: existingFiles } = await supabase.storage.from('invitations').list(eventId)
+    if (existingFiles && existingFiles.length > 0) {
+      await supabase.storage
+        .from('invitations')
+        .remove(existingFiles.map((f) => `${eventId}/${f.name}`))
     }
-    await supabase.storage.from('invitations').remove(filesToRemove)
-    const result = await updateEventImage(eventId, null)
-    if ('success' in result) setImageUrl(null)
+    const result = await updateEventImage(eventId, null, null)
+    if ('success' in result) {
+      setImageUrl(null)
+    }
     setUploading(false)
   }
 

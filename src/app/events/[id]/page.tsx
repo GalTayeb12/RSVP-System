@@ -27,7 +27,7 @@ export default async function EventPage({
     supabase
       .from('events')
       .select(
-        'id, title, host_names, partner_a_name, partner_b_name, event_date, venue_name, venue_address, waze_url, gift_url, show_seating, invitation_image_url, rsvp_deadline, rsvp_settings, owner_id',
+        'id, title, host_names, partner_a_name, partner_b_name, event_date, venue_name, venue_address, waze_url, gift_url, show_seating, invitation_image_url, og_image_url, rsvp_deadline, rsvp_settings, owner_id',
       )
       .eq('id', id)
       .single(),

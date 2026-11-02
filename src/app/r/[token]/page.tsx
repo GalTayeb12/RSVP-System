@@ -5,14 +5,6 @@ import { DEFAULT_RSVP_SETTINGS, type RsvpSettings, type RsvpAnswers } from '@/li
 import { tokenSchema } from '@/lib/zod-schemas'
 import { coupleDisplayName } from '@/lib/couple-names'
 
-/** Derive the og.jpg URL from the main invitation image URL. */
-function deriveOgImageUrl(imageUrl: string | null): string | null {
-  if (!imageUrl) return null
-  const lastSlash = imageUrl.lastIndexOf('/')
-  if (lastSlash < 0) return null
-  return `${imageUrl.slice(0, lastSlash + 1)}og.jpg`
-}
-
 export const instant = false
 
 type Params = { token: string }
@@ -29,7 +21,7 @@ export async function generateMetadata({
   const { data } = await supabase
     .from('guests')
     .select(
-      'events(title, host_names, partner_a_name, partner_b_name, venue_name, event_date, invitation_image_url)',
+      'events(title, host_names, partner_a_name, partner_b_name, venue_name, event_date, invitation_image_url, og_image_url)',
     )
     .eq('rsvp_token', token)
     .maybeSingle()
@@ -42,6 +34,7 @@ export async function generateMetadata({
     venue_name: string | null
     event_date: string | null
     invitation_image_url: string | null
+    og_image_url: string | null
   }
   const ev = data?.events as unknown as MetaEventShape | null
   if (!ev) return { robots: 'noindex' }
@@ -52,10 +45,8 @@ export async function generateMetadata({
     ? `${names} מזמינים אתכם! לפרטים ואישור הגעה`
     : 'הזמנה לאירוע — לפרטים ואישור הגעה'
 
-  const ogImageUrl = deriveOgImageUrl(ev.invitation_image_url)
-
-  const images = ogImageUrl
-    ? [{ url: ogImageUrl, width: 1200, height: 630, alt: ev.title }]
+  const images = ev.og_image_url
+    ? [{ url: ev.og_image_url, width: 1200, height: 630, alt: ev.title }]
     : ev.invitation_image_url
     ? [{ url: ev.invitation_image_url, alt: ev.title }]
     : []

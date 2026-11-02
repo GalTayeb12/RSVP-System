@@ -21,13 +21,14 @@ async function getAccessibleClient(eventId: string) {
 export async function updateEventImage(
   eventId: string,
   imageUrl: string | null,
+  ogImageUrl: string | null,
 ): Promise<{ success: true } | { error: string }> {
   const supabase = await getAccessibleClient(eventId)
   if (!supabase) return { error: 'אין גישה לאירוע' }
 
   const { error } = await supabase
     .from('events')
-    .update({ invitation_image_url: imageUrl })
+    .update({ invitation_image_url: imageUrl, og_image_url: ogImageUrl })
     .eq('id', eventId)
 
   if (error) {

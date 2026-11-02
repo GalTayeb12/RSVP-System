@@ -44,6 +44,7 @@ export type Database = {
           gift_url: string | null
           show_seating: boolean
           invitation_image_url: string | null
+          og_image_url: string | null
           message_quota: number
           rsvp_deadline: string | null
           rsvp_settings: Record<string, unknown>
@@ -63,6 +64,7 @@ export type Database = {
           gift_url?: string | null
           show_seating?: boolean
           invitation_image_url?: string | null
+          og_image_url?: string | null
           message_quota?: number
           rsvp_deadline?: string | null
           rsvp_settings?: Record<string, unknown>
@@ -82,6 +84,7 @@ export type Database = {
           gift_url?: string | null
           show_seating?: boolean
           invitation_image_url?: string | null
+          og_image_url?: string | null
           message_quota?: number
           rsvp_deadline?: string | null
           rsvp_settings?: Record<string, unknown>
