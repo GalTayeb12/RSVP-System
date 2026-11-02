@@ -3,6 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { normalizePhone } from '@/lib/phone'
+import { checkManualUpdateAllowed } from '@/lib/rsvp-manual'
+import type { RsvpAnswers } from '@/lib/rsvp-settings'
 
 export type GuestData = {
   first_name: string
@@ -196,7 +198,66 @@ export async function importGuests(
   return { imported }
 }
 
-// ─── Update RSVP status (manual) ─────────────────────────────────────────────
+// ─── Manual RSVP override (after phone call) ────────────────────────────────
+
+/**
+ * Updates a guest's RSVP status manually (e.g. after a phone call).
+ * Blocked if the guest's last recorded answer came from their personal link —
+ * in that case they must update themselves.
+ */
+export async function manualUpdateRsvp(
+  guestId: string,
+  eventId: string,
+  input: {
+    status: 'attending' | 'declined' | 'maybe'
+    attending_count?: number
+    rsvp_answers?: RsvpAnswers
+  },
+): Promise<{ success: true } | { error: string }> {
+  const supabase = await getAccessibleClient(eventId)
+  if (!supabase) return { error: 'אין גישה לאירוע' }
+
+  // Check whether the last recorded answer came from the personal link
+  const { data: lastHistory } = await supabase
+    .from('rsvp_history')
+    .select('source, created_at')
+    .eq('guest_id', guestId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const blockReason = checkManualUpdateAllowed(lastHistory)
+  if (blockReason) return { error: blockReason }
+
+  const attending_count =
+    input.status === 'attending' ? (input.attending_count ?? 1) : 0
+
+  const { error } = await supabase
+    .from('guests')
+    .update({
+      status: input.status,
+      attending_count,
+      rsvp_answers: input.rsvp_answers ?? null,
+      responded_at: new Date().toISOString(),
+    })
+    .eq('id', guestId)
+    .eq('event_id', eventId)
+
+  if (error) return { error: `שגיאה בשמירה: ${error.message}` }
+
+  await supabase.from('rsvp_history').insert({
+    guest_id: guestId,
+    status: input.status,
+    attending_count,
+    rsvp_answers: input.rsvp_answers ?? null,
+    source: 'manual',
+  })
+
+  revalidatePath(`/events/${eventId}/guests`)
+  return { success: true }
+}
+
+// ─── Update RSVP status (legacy, kept for internal use) ──────────────────────
 
 export async function updateGuestStatus(
   guestId: string,

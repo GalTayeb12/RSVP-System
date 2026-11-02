@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import LogoutButton from '@/components/LogoutButton'
 import GuestsClient from './GuestsClient'
+import { DEFAULT_RSVP_SETTINGS, type RsvpSettings } from '@/lib/rsvp-settings'
 
 export const instant = false
 
@@ -24,7 +25,7 @@ export default async function GuestsPage({
 
   const { data: event } = await supabase
     .from('events')
-    .select('id, title')
+    .select('id, title, rsvp_settings')
     .eq('id', id)
     .single()
 
@@ -40,6 +41,29 @@ export default async function GuestsPage({
 
   const guestList = guests ?? []
 
+  // Fetch the most-recent rsvp_history entry per guest (source tells us who last answered)
+  const guestIds = guestList.map((g) => g.id)
+  const lastHistoryMap = new Map<string, { source: string; created_at: string }>()
+
+  if (guestIds.length > 0) {
+    const { data: historyRows } = await supabase
+      .from('rsvp_history')
+      .select('guest_id, source, created_at')
+      .in('guest_id', guestIds)
+      .order('created_at', { ascending: false })
+
+    for (const h of historyRows ?? []) {
+      if (!lastHistoryMap.has(h.guest_id)) {
+        lastHistoryMap.set(h.guest_id, { source: h.source, created_at: h.created_at })
+      }
+    }
+  }
+
+  const augmentedGuests = guestList.map((g) => ({
+    ...g,
+    lastHistory: lastHistoryMap.get(g.id) ?? null,
+  }))
+
   const existingGroups = [
     ...new Set(
       guestList
@@ -47,6 +71,11 @@ export default async function GuestsPage({
         .filter((g): g is string => Boolean(g)),
     ),
   ].sort()
+
+  const rsvpSettings: RsvpSettings =
+    event.rsvp_settings
+      ? (event.rsvp_settings as unknown as RsvpSettings)
+      : DEFAULT_RSVP_SETTINGS
 
   return (
     <div className="min-h-screen bg-background">
@@ -68,8 +97,9 @@ export default async function GuestsPage({
       <main className="mx-auto max-w-5xl p-4 pb-12">
         <GuestsClient
           eventId={id}
-          guests={guestList}
+          guests={augmentedGuests}
           existingGroups={existingGroups}
+          rsvpSettings={rsvpSettings}
           initialStatus={sp.status ?? ''}
           initialSide={sp.side ?? ''}
           initialLandline={sp.phone === 'landline'}

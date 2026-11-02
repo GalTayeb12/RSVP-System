@@ -4,20 +4,26 @@ import { useState, useTransition, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { formatPhone, isLandline } from '@/lib/phone'
-import { deleteGuest, updateGuestStatus } from './actions'
+import type { RsvpSettings } from '@/lib/rsvp-settings'
+import { deleteGuest } from './actions'
 import GuestForm, { type GuestRow } from './GuestForm'
+import ManualUpdateDialog from './ManualUpdateDialog'
+
+type LastHistory = { source: string; created_at: string } | null
 
 type Guest = GuestRow & {
   status: 'pending' | 'attending' | 'declined' | 'maybe'
   attending_count: number
   opted_out: boolean
   rsvp_answers: { transport?: { needs_transport?: boolean } } | null
+  lastHistory: LastHistory
 }
 
 type Props = {
   eventId: string
   guests: Guest[]
   existingGroups: string[]
+  rsvpSettings: RsvpSettings
   initialStatus?: string
   initialSide?: string
   initialLandline?: boolean
@@ -46,6 +52,7 @@ export default function GuestsClient({
   eventId,
   guests,
   existingGroups,
+  rsvpSettings,
   initialStatus = '',
   initialSide = '',
   initialLandline = false,
@@ -68,7 +75,10 @@ export default function GuestsClient({
 
   // Delete confirmation
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  const [deleteError, setDeleteError] = useState('')
+  const [actionError, setActionError] = useState('')
+
+  // Manual update dialog
+  const [manualUpdateGuest, setManualUpdateGuest] = useState<Guest | null>(null)
 
   // ── Stats ──────────────────────────────────────────────────────────────────
   const totalInvited = guests.reduce((s, g) => s + g.invited_count, 0)
@@ -111,26 +121,15 @@ export default function GuestsClient({
   }
 
   function handleDelete(id: string) {
-    setDeleteError('')
+    setActionError('')
     startTransition(async () => {
       const result = await deleteGuest(id, eventId)
       if ('error' in result) {
-        setDeleteError(result.error)
+        setActionError(result.error)
       } else {
         setConfirmDeleteId(null)
         router.refresh()
       }
-    })
-  }
-
-  function handleStatusChange(
-    guestId: string,
-    status: 'pending' | 'attending' | 'declined' | 'maybe',
-  ) {
-    startTransition(async () => {
-      const result = await updateGuestStatus(guestId, eventId, status)
-      if ('error' in result) setDeleteError(result.error)
-      else router.refresh()
     })
   }
 
@@ -235,10 +234,10 @@ export default function GuestsClient({
         </Link>
       </div>
 
-      {/* ── Delete error ── */}
-      {deleteError && (
+      {/* ── Action error ── */}
+      {actionError && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {deleteError}
+          {actionError}
         </p>
       )}
 
@@ -278,49 +277,14 @@ export default function GuestsClient({
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-muted">
-                      {SIDE_LABEL[g.side]}
-                    </td>
-                    <td className="px-4 py-3 text-muted">
-                      {g.group_name ?? '—'}
-                    </td>
+                    <td className="px-4 py-3 text-muted">{SIDE_LABEL[g.side]}</td>
+                    <td className="px-4 py-3 text-muted">{g.group_name ?? '—'}</td>
                     <td className="px-4 py-3 text-center">{g.invited_count}</td>
                     <td className="px-4 py-3">
-                      <StatusBadge status={g.status} />
-                      {g.responded_at && (
-                        <p className="mt-0.5 text-xs text-muted">
-                          {new Date(g.responded_at).toLocaleDateString('he-IL', {
-                            day: 'numeric',
-                            month: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </p>
-                      )}
+                      <StatusCell guest={g} />
                     </td>
                     <td className="px-4 py-3">
-                      <span className="flex items-center gap-2">
-                        <button
-                          onClick={() =>
-                            navigator.clipboard.writeText(
-                              `${window.location.origin}/r/${g.rsvp_token}`,
-                            )
-                          }
-                          className="text-muted transition hover:text-foreground"
-                          title="העתק קישור אישי"
-                        >
-                          📋
-                        </button>
-                        <a
-                          href={`/r/${g.rsvp_token}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-muted transition hover:text-foreground"
-                          title="פתח דף RSVP"
-                        >
-                          🔗
-                        </a>
-                      </span>
+                      <LinkButtons rsvpToken={g.rsvp_token} />
                     </td>
                     <td className="px-4 py-3">
                       <RowActions
@@ -328,10 +292,10 @@ export default function GuestsClient({
                         isPending={isPending}
                         confirmDeleteId={confirmDeleteId}
                         onEdit={() => handleEdit(g)}
+                        onManualUpdate={() => setManualUpdateGuest(g)}
                         onRequestDelete={() => setConfirmDeleteId(g.id)}
                         onConfirmDelete={() => handleDelete(g.id)}
                         onCancelDelete={() => setConfirmDeleteId(null)}
-                        onStatusChange={(status) => handleStatusChange(g.id, status)}
                       />
                     </td>
                   </tr>
@@ -343,12 +307,9 @@ export default function GuestsClient({
           {/* Mobile cards */}
           <ul className="space-y-3 sm:hidden">
             {filtered.map((g) => (
-              <li
-                key={g.id}
-                className="rounded-2xl border border-border bg-card p-4"
-              >
+              <li key={g.id} className="rounded-2xl border border-border bg-card p-4">
                 <div className="flex items-start justify-between gap-2">
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <p className="font-semibold">
                       {g.first_name} {g.last_name ?? ''}
                     </p>
@@ -360,17 +321,6 @@ export default function GuestsClient({
                         </span>
                       )}
                     </p>
-                    {g.responded_at && (
-                      <p className="mt-0.5 text-xs text-muted">
-                        ענה/תה:{' '}
-                        {new Date(g.responded_at).toLocaleDateString('he-IL', {
-                          day: 'numeric',
-                          month: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </p>
-                    )}
                     <p className="mt-1 text-xs text-muted">
                       {SIDE_LABEL[g.side]}
                       {g.group_name ? ` · ${g.group_name}` : ''}
@@ -378,40 +328,21 @@ export default function GuestsClient({
                       {g.invited_count} מוזמנים
                     </p>
                   </div>
-                  <div className="flex flex-col items-end gap-2">
-                    <StatusBadge status={g.status} />
-                    <span className="flex items-center gap-2">
-                      <button
-                        onClick={() =>
-                          navigator.clipboard.writeText(
-                            `${window.location.origin}/r/${g.rsvp_token}`,
-                          )
-                        }
-                        className="text-muted transition hover:text-foreground"
-                        title="העתק קישור אישי"
-                      >
-                        📋
-                      </button>
-                      <a
-                        href={`/r/${g.rsvp_token}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-muted transition hover:text-foreground"
-                        title="פתח דף RSVP"
-                      >
-                        🔗
-                      </a>
-                    </span>
-                    <RowActions
-                      guest={g}
-                      isPending={isPending}
-                      confirmDeleteId={confirmDeleteId}
-                      onEdit={() => handleEdit(g)}
-                      onRequestDelete={() => setConfirmDeleteId(g.id)}
-                      onConfirmDelete={() => handleDelete(g.id)}
-                      onCancelDelete={() => setConfirmDeleteId(null)}
-                      onStatusChange={(status) => handleStatusChange(g.id, status)}
-                    />
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <StatusCell guest={g} />
+                    <div className="flex items-center gap-2">
+                      <LinkButtons rsvpToken={g.rsvp_token} />
+                      <RowActions
+                        guest={g}
+                        isPending={isPending}
+                        confirmDeleteId={confirmDeleteId}
+                        onEdit={() => handleEdit(g)}
+                        onManualUpdate={() => setManualUpdateGuest(g)}
+                        onRequestDelete={() => setConfirmDeleteId(g.id)}
+                        onConfirmDelete={() => handleDelete(g.id)}
+                        onCancelDelete={() => setConfirmDeleteId(null)}
+                      />
+                    </div>
                   </div>
                 </div>
                 {confirmDeleteId === g.id && (
@@ -424,10 +355,7 @@ export default function GuestsClient({
                     >
                       מחק
                     </button>
-                    <button
-                      onClick={() => setConfirmDeleteId(null)}
-                      className="text-muted"
-                    >
+                    <button onClick={() => setConfirmDeleteId(null)} className="text-muted">
                       ביטול
                     </button>
                   </div>
@@ -441,6 +369,22 @@ export default function GuestsClient({
       <p className="text-xs text-muted">
         מציג {filtered.length} מתוך {guests.length} רשומות
       </p>
+
+      {/* Manual update dialog */}
+      {manualUpdateGuest && (
+        <ManualUpdateDialog
+          eventId={eventId}
+          guestId={manualUpdateGuest.id}
+          guestName={`${manualUpdateGuest.first_name} ${manualUpdateGuest.last_name ?? ''}`.trim()}
+          invitedCount={manualUpdateGuest.invited_count}
+          rsvpSettings={rsvpSettings}
+          onClose={() => setManualUpdateGuest(null)}
+          onSuccess={() => {
+            setManualUpdateGuest(null)
+            router.refresh()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -472,12 +416,73 @@ function StatCard({
   )
 }
 
-function StatusBadge({ status }: { status: string }) {
+/** Status badge + source label ("אישר בקישור" / "עודכן ידנית") */
+function StatusCell({ guest }: { guest: Guest }) {
+  const src = guest.lastHistory?.source ?? null
   return (
-    <span
-      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLOR[status] ?? 'bg-muted/20 text-muted'}`}
-    >
-      {STATUS_LABEL[status] ?? status}
+    <div className="space-y-0.5">
+      <span
+        className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLOR[guest.status] ?? 'bg-muted/20 text-muted'}`}
+      >
+        {STATUS_LABEL[guest.status] ?? guest.status}
+      </span>
+      {src === 'link' && guest.lastHistory && (
+        <p className="text-xs text-green-700">
+          אישר בקישור ·{' '}
+          {new Date(guest.lastHistory.created_at).toLocaleDateString('he-IL', {
+            day: 'numeric',
+            month: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+        </p>
+      )}
+      {src === 'manual' && guest.lastHistory && (
+        <p className="text-xs text-muted">
+          עודכן ידנית ·{' '}
+          {new Date(guest.lastHistory.created_at).toLocaleDateString('he-IL', {
+            day: 'numeric',
+            month: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+        </p>
+      )}
+      {!src && guest.responded_at && (
+        <p className="text-xs text-muted">
+          {new Date(guest.responded_at).toLocaleDateString('he-IL', {
+            day: 'numeric',
+            month: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function LinkButtons({ rsvpToken }: { rsvpToken: string }) {
+  return (
+    <span className="flex items-center gap-2">
+      <button
+        onClick={() =>
+          navigator.clipboard.writeText(`${window.location.origin}/r/${rsvpToken}`)
+        }
+        className="text-muted transition hover:text-foreground"
+        title="העתק קישור אישי"
+      >
+        📋
+      </button>
+      <a
+        href={`/r/${rsvpToken}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-muted transition hover:text-foreground"
+        title="פתח דף RSVP"
+      >
+        🔗
+      </a>
     </span>
   )
 }
@@ -487,20 +492,22 @@ function RowActions({
   isPending,
   confirmDeleteId,
   onEdit,
+  onManualUpdate,
   onRequestDelete,
   onConfirmDelete,
   onCancelDelete,
-  onStatusChange,
 }: {
   guest: Guest
   isPending: boolean
   confirmDeleteId: string | null
   onEdit: () => void
+  onManualUpdate: () => void
   onRequestDelete: () => void
   onConfirmDelete: () => void
   onCancelDelete: () => void
-  onStatusChange: (status: 'pending' | 'attending' | 'declined' | 'maybe') => void
 }) {
+  const answeredViaLink = guest.lastHistory?.source === 'link'
+
   if (confirmDeleteId === guest.id) {
     return (
       <span className="flex items-center gap-1 text-xs text-red-700">
@@ -518,27 +525,23 @@ function RowActions({
       </span>
     )
   }
+
   return (
     <span className="flex items-center gap-2">
-      <select
-        value={guest.status}
-        onChange={(e) =>
-          onStatusChange(
-            e.target.value as 'pending' | 'attending' | 'declined' | 'maybe',
-          )
-        }
-        disabled={isPending}
-        className="rounded border border-border bg-background px-1 py-0.5 text-xs focus:outline-none"
-      >
-        <option value="pending">ממתין</option>
-        <option value="attending">מגיע</option>
-        <option value="declined">לא מגיע</option>
-        <option value="maybe">אולי</option>
-      </select>
+      {/* Manual update — only allowed when last source is NOT 'link' */}
+      {!answeredViaLink && (
+        <button
+          onClick={onManualUpdate}
+          className="rounded border border-border px-2 py-0.5 text-xs text-muted transition hover:border-accent hover:text-foreground"
+          title="עדכון תשובה ידני (אחרי שיחה)"
+        >
+          עדכון ידני
+        </button>
+      )}
       <button
         onClick={onEdit}
         className="text-muted transition hover:text-foreground"
-        title="עריכה"
+        title="עריכת פרטים"
       >
         ✏
       </button>
