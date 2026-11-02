@@ -140,6 +140,7 @@ export default async function GuestsPage({
           initialSide={sp.side ?? ''}
           initialLandline={sp.phone === 'landline'}
           initialTransport={sp.transport === 'yes'}
+          initialOver={sp.over === 'yes'}
         />
       </main>
     </div>

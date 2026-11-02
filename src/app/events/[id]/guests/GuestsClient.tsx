@@ -31,6 +31,7 @@ type Props = {
   initialSide?: string
   initialLandline?: boolean
   initialTransport?: boolean
+  initialOver?: boolean
 }
 
 const SIDE_LABEL: Record<string, string> = {
@@ -60,6 +61,7 @@ export default function GuestsClient({
   initialSide = '',
   initialLandline = false,
   initialTransport = false,
+  initialOver = false,
 }: Props) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -71,6 +73,7 @@ export default function GuestsClient({
   const [filterStatus, setFilterStatus] = useState(initialStatus)
   const [filterLandline, setFilterLandline] = useState(initialLandline)
   const [filterTransport, setFilterTransport] = useState(initialTransport)
+  const [filterOver, setFilterOver] = useState(initialOver)
   const [filterNoInvitation, setFilterNoInvitation] = useState(false)
   const [filterMsgFailed, setFilterMsgFailed] = useState(false)
 
@@ -108,11 +111,12 @@ export default function GuestsClient({
       if (filterStatus && g.status !== filterStatus) return false
       if (filterLandline && !isLandline(g.phone)) return false
       if (filterTransport && !g.rsvp_answers?.transport?.needs_transport) return false
+      if (filterOver && !(g.status === 'attending' && g.attending_count > g.invited_count)) return false
       if (filterNoInvitation && g.lastSent !== null) return false
       if (filterMsgFailed && g.lastMsgStatus !== 'failed') return false
       return true
     })
-  }, [guests, search, filterSide, filterGroup, filterStatus, filterLandline, filterTransport, filterNoInvitation, filterMsgFailed])
+  }, [guests, search, filterSide, filterGroup, filterStatus, filterLandline, filterTransport, filterOver, filterNoInvitation, filterMsgFailed])
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   function handleFormSuccess() {
@@ -222,6 +226,12 @@ export default function GuestsClient({
           className={`rounded-lg border px-4 py-2 text-sm transition ${filterTransport ? 'border-accent bg-accent/10 text-accent' : 'border-border hover:bg-background'}`}
         >
           הסעות
+        </button>
+        <button
+          onClick={() => setFilterOver((v) => !v)}
+          className={`rounded-lg border px-4 py-2 text-sm transition ${filterOver ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-border hover:bg-background'}`}
+        >
+          יותר מהמוזמנים
         </button>
         <button
           onClick={() => setFilterNoInvitation((v) => !v)}
@@ -442,12 +452,24 @@ function StatCard({
 /** Status badge + source label ("אישר בקישור" / "עודכן ידנית") */
 function StatusCell({ guest }: { guest: Guest }) {
   const src = guest.lastHistory?.source ?? null
+  const overCount =
+    guest.status === 'attending' && guest.attending_count > guest.invited_count
+      ? guest.attending_count - guest.invited_count
+      : 0
   return (
     <div className="space-y-0.5">
-      <span
-        className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLOR[guest.status] ?? 'bg-muted/20 text-muted'}`}
-      >
-        {STATUS_LABEL[guest.status] ?? guest.status}
+      <span className="inline-flex items-center gap-1">
+        <span
+          className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLOR[guest.status] ?? 'bg-muted/20 text-muted'}`}
+        >
+          {STATUS_LABEL[guest.status] ?? guest.status}
+          {guest.status === 'attending' && guest.attending_count > 0 && ` (${guest.attending_count})`}
+        </span>
+        {overCount > 0 && (
+          <span className="inline-block rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700">
+            +{overCount}
+          </span>
+        )}
       </span>
       {src === 'link' && guest.lastHistory && (
         <p className="text-xs text-green-700">

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { MAX_ATTENDEES_PER_GUEST } from './config'
 
 // ── Token ─────────────────────────────────────────────────────────────────────
 
@@ -11,7 +12,7 @@ export const tokenSchema = z
 
 export const rsvpInputSchema = z.object({
   status: z.enum(['attending', 'declined', 'maybe']),
-  attending_count: z.number().int().min(0).max(200).optional(),
+  attending_count: z.number().int().min(0).max(MAX_ATTENDEES_PER_GUEST).optional(),
   rsvp_answers: z.record(z.string(), z.unknown()).optional(),
 })
 

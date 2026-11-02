@@ -67,7 +67,7 @@ export async function submitRsvp(
     return { error: 'יותר מדי נסיונות. נסה שוב בעוד דקה.' }
   }
 
-  const validationError = validateRsvpInput(input, guest.invited_count)
+  const validationError = validateRsvpInput(input)
   if (validationError) return { error: validationError.message }
 
   const settings = (event?.rsvp_settings ?? DEFAULT_RSVP_SETTINGS) as RsvpSettings

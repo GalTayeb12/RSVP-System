@@ -121,6 +121,14 @@ export default function DashboardClient({
     [guests],
   )
 
+  const { overInvitedCount, overInvitedExtra } = useMemo(() => {
+    const over = guests.filter((g) => g.status === 'attending' && g.attending_count > g.invited_count)
+    return {
+      overInvitedCount: over.length,
+      overInvitedExtra: over.reduce((s, g) => s + (g.attending_count - g.invited_count), 0),
+    }
+  }, [guests])
+
   const daysToEvent = daysUntil(eventDate, now)
   const daysToDeadline = daysUntil(rsvpDeadline, now)
 
@@ -431,9 +439,18 @@ export default function DashboardClient({
       )}
 
       {/* Attention items */}
-      {(landlineCount > 0 || stats.optedOutCount > 0) && (
+      {(landlineCount > 0 || stats.optedOutCount > 0 || overInvitedCount > 0) && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 space-y-2">
           <h3 className="text-sm font-semibold text-amber-800">פריטים לתשומת לב</h3>
+          {overInvitedCount > 0 && (
+            <Link
+              href={`/events/${eventId}/guests?over=yes`}
+              className="flex items-center justify-between text-sm text-amber-800"
+            >
+              <span>אישרו יותר מהמוזמנים: {overInvitedCount} רשומות (+{overInvitedExtra} אנשים)</span>
+              <span className="font-bold">←</span>
+            </Link>
+          )}
           {landlineCount > 0 && (
             <Link
               href={`/events/${eventId}/guests?phone=landline`}

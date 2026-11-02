@@ -16,6 +16,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import { submitRsvp, optOut } from './actions'
 import type { RsvpSettings, RsvpAnswers } from '@/lib/rsvp-settings'
+import { MAX_ATTENDEES_PER_GUEST } from '@/lib/config'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -220,6 +221,30 @@ function CalendarButtons({ event }: { event: EventInfo }) {
   )
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Reduce meal counts from the last option backwards until the total fits within
+ * `max`. Used when the attendingCount stepper decreases.
+ */
+function clampMeals(
+  meals: Record<string, number>,
+  max: number,
+  optionIds: string[],
+): Record<string, number> {
+  const total = Object.values(meals).reduce((s, n) => s + n, 0)
+  if (total <= max) return meals
+  const result = { ...meals }
+  let excess = total - max
+  for (let i = optionIds.length - 1; i >= 0 && excess > 0; i--) {
+    const id = optionIds[i]
+    const cut = Math.min(result[id] ?? 0, excess)
+    result[id] = (result[id] ?? 0) - cut
+    excess -= cut
+  }
+  return result
+}
+
 // ── RSVP tab ──────────────────────────────────────────────────────────────────
 
 type RsvpTabProps = {
@@ -287,6 +312,13 @@ function RsvpTab({
   const totalMeals = Object.values(mealCounts).reduce((s, n) => s + n, 0)
   const mealsValid = !rsvpSettings.meals.enabled || totalMeals <= attendingCount
   const isExistingAnswer = currentStatus !== 'pending'
+  const mealOptionIds = rsvpSettings.meals.options.map((o) => o.id)
+
+  function handleAttendingCountChange(newCount: number) {
+    setAttendingCount(newCount)
+    setTransportCount((c) => Math.min(c, newCount))
+    setMealCounts((m) => clampMeals(m, newCount, mealOptionIds))
+  }
 
   function handleSubmit() {
     if (!selectedStatus || isPending) return
@@ -410,7 +442,7 @@ function RsvpTab({
                     <div className="flex items-center justify-center gap-6">
                       <button
                         type="button"
-                        onClick={() => setAttendingCount((c) => Math.max(1, c - 1))}
+                        onClick={() => handleAttendingCountChange(Math.max(1, attendingCount - 1))}
                         disabled={attendingCount <= 1 || isPending}
                         className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-border text-xl font-bold transition hover:border-accent disabled:opacity-30"
                       >−</button>
@@ -419,8 +451,8 @@ function RsvpTab({
                       </span>
                       <button
                         type="button"
-                        onClick={() => setAttendingCount((c) => Math.min(invitedCount, c + 1))}
-                        disabled={attendingCount >= invitedCount || isPending}
+                        onClick={() => handleAttendingCountChange(Math.min(MAX_ATTENDEES_PER_GUEST, attendingCount + 1))}
+                        disabled={attendingCount >= MAX_ATTENDEES_PER_GUEST || isPending}
                         className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-border text-xl font-bold transition hover:border-accent disabled:opacity-30"
                       >+</button>
                     </div>
@@ -448,8 +480,10 @@ function RsvpTab({
                                 <button type="button" onClick={() => setMealCounts((m) => ({ ...m, [opt.id]: Math.max(0, (m[opt.id] ?? 0) - 1) }))} disabled={count === 0}
                                   className="flex h-6 w-6 items-center justify-center rounded-full border border-border text-xs disabled:opacity-30">−</button>
                                 <span className="w-5 text-center text-sm font-bold">{count}</span>
-                                <button type="button" onClick={() => setMealCounts((m) => ({ ...m, [opt.id]: (m[opt.id] ?? 0) + 1 }))}
-                                  className="flex h-6 w-6 items-center justify-center rounded-full border border-border text-xs">+</button>
+                                <button type="button"
+                                  onClick={() => setMealCounts((m) => ({ ...m, [opt.id]: (m[opt.id] ?? 0) + 1 }))}
+                                  disabled={totalMeals >= attendingCount}
+                                  className="flex h-6 w-6 items-center justify-center rounded-full border border-border text-xs disabled:opacity-30">+</button>
                               </div>
                             </div>
                           )
