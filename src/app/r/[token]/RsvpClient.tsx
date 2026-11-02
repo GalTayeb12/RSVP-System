@@ -367,7 +367,7 @@ export default function RsvpClient({
 
                 {/* Attending details */}
                 {selectedStatus === 'attending' && (
-                  <div className="space-y-5 rounded-2xl border border-border bg-card p-5">
+                  <div className="animate-fade-slide-in space-y-5 rounded-2xl border border-border bg-card p-5">
 
                     {/* Count stepper */}
                     <div>
