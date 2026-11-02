@@ -8,8 +8,14 @@ import {
   type RsvpAnswers,
   type RsvpSettings,
 } from '@/lib/rsvp-settings'
+import { tokenSchema, rsvpInputSchema } from '@/lib/zod-schemas'
 
 export type RsvpResult = { success: true } | { error: string }
+
+const RATE_LIMIT = 10         // max submissions per window
+const RATE_WINDOW_MS = 60_000 // 1 minute
+
+// ── submitRsvp ────────────────────────────────────────────────────────────────
 
 export async function submitRsvp(
   token: string,
@@ -19,6 +25,16 @@ export async function submitRsvp(
     rsvp_answers?: RsvpAnswers
   },
 ): Promise<RsvpResult> {
+  // 1. Validate token format before touching the DB
+  const tokenResult = tokenSchema.safeParse(token)
+  if (!tokenResult.success) return { error: 'קישור לא תקין' }
+
+  // 2. Validate input shape
+  const inputResult = rsvpInputSchema.safeParse(input)
+  if (!inputResult.success) {
+    return { error: inputResult.error.issues[0]?.message ?? 'קלט לא תקין' }
+  }
+
   const supabase = createAdminClient()
 
   const { data: guest } = await supabase
@@ -36,6 +52,19 @@ export async function submitRsvp(
 
   if (event?.rsvp_deadline && new Date() > new Date(event.rsvp_deadline)) {
     return { error: 'המועד האחרון לאישור הגעה עבר' }
+  }
+
+  // 3. Rate-limit: max RATE_LIMIT submissions per guest per minute
+  const windowStart = new Date(Date.now() - RATE_WINDOW_MS).toISOString()
+  const { count: recentCount } = await supabase
+    .from('rsvp_history')
+    .select('id', { count: 'exact', head: true })
+    .eq('guest_id', guest.id)
+    .eq('source', 'link')
+    .gte('created_at', windowStart)
+
+  if ((recentCount ?? 0) >= RATE_LIMIT) {
+    return { error: 'יותר מדי נסיונות. נסה שוב בעוד דקה.' }
   }
 
   const validationError = validateRsvpInput(input, guest.invited_count)
@@ -63,9 +92,12 @@ export async function submitRsvp(
     })
     .eq('id', guest.id)
 
-  if (updateError) return { error: 'שגיאה בשמירה. נסה שנית.' }
+  if (updateError) {
+    console.error('[submitRsvp] update error:', updateError.message)
+    return { error: 'שגיאה בשמירה. נסה שנית.' }
+  }
 
-  await supabase.from('rsvp_history').insert({
+  const { error: historyError } = await supabase.from('rsvp_history').insert({
     guest_id: guest.id,
     status: input.status,
     attending_count,
@@ -73,10 +105,19 @@ export async function submitRsvp(
     source: 'link',
   })
 
+  if (historyError) {
+    console.error('[submitRsvp] history error:', historyError.message)
+  }
+
   return { success: true }
 }
 
+// ── optOut ────────────────────────────────────────────────────────────────────
+
 export async function optOut(token: string): Promise<RsvpResult> {
+  const tokenResult = tokenSchema.safeParse(token)
+  if (!tokenResult.success) return { error: 'קישור לא תקין' }
+
   const supabase = createAdminClient()
 
   const { data: guest } = await supabase
@@ -92,6 +133,9 @@ export async function optOut(token: string): Promise<RsvpResult> {
     .update({ opted_out: true })
     .eq('id', guest.id)
 
-  if (error) return { error: 'שגיאה בשמירה' }
+  if (error) {
+    console.error('[optOut] error:', error.message)
+    return { error: 'שגיאה בשמירה' }
+  }
   return { success: true }
 }

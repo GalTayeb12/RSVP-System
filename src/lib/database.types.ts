@@ -339,6 +339,10 @@ export type Database = {
         Args: { e: string }
         Returns: boolean
       }
+      can_manage_event: {
+        Args: { e: string }
+        Returns: boolean
+      }
     }
     Enums: {
       user_role: 'admin' | 'owner' | 'helper'

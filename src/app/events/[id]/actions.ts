@@ -30,7 +30,10 @@ export async function updateEventImage(
     .update({ invitation_image_url: imageUrl })
     .eq('id', eventId)
 
-  if (error) return { error: `שגיאה בשמירה: ${error.message}` }
+  if (error) {
+    console.error('[updateEventImage]', error.message)
+    return { error: 'שגיאה בשמירה. נסה שנית.' }
+  }
   revalidatePath(`/events/${eventId}`)
   return { success: true }
 }
@@ -47,7 +50,10 @@ export async function updateEventDeadline(
     .update({ rsvp_deadline: deadline })
     .eq('id', eventId)
 
-  if (error) return { error: `שגיאה בשמירה: ${error.message}` }
+  if (error) {
+    console.error('[updateEventDeadline]', error.message)
+    return { error: 'שגיאה בשמירה. נסה שנית.' }
+  }
   revalidatePath(`/events/${eventId}`)
   return { success: true }
 }
@@ -64,7 +70,10 @@ export async function updateRsvpSettings(
     .update({ rsvp_settings: settings })
     .eq('id', eventId)
 
-  if (error) return { error: `שגיאה בשמירה: ${error.message}` }
+  if (error) {
+    console.error('[updateRsvpSettings]', error.message)
+    return { error: 'שגיאה בשמירה. נסה שנית.' }
+  }
   revalidatePath(`/events/${eventId}`)
   return { success: true }
 }

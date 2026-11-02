@@ -74,8 +74,15 @@ export default function ImportClient({ eventId, eventTitle, existingGuests }: Pr
 
   // ── File parsing ──────────────────────────────────────────────────────────
 
+  const MAX_FILE_BYTES = 5 * 1024 * 1024  // 5 MB
+  const MAX_ROWS = 3_000
+
   function handleFile(file: File) {
     if (!xlsxReady || !window.XLSX) return
+    if (file.size > MAX_FILE_BYTES) {
+      alert('הקובץ גדול מדי (מקסימום 5 MB)')
+      return
+    }
     const reader = new FileReader()
     reader.onload = (e) => {
       const data = new Uint8Array(e.target!.result as ArrayBuffer)
@@ -89,6 +96,10 @@ export default function ImportClient({ eventId, eventTitle, existingGuests }: Pr
       if (!matrix.length) return
       const headers = matrix[0].map(String)
       const dataRows = matrix.slice(1).filter((r) => r.some((c) => String(c).trim()))
+      if (dataRows.length > MAX_ROWS) {
+        alert(`הקובץ מכיל יותר מ-${MAX_ROWS} שורות. פצל לקבצים קטנים יותר.`)
+        return
+      }
       setRawHeaders(headers)
       setRawRows(dataRows.map((r) => r.map(String)))
       setMapping(detectHeaders(headers))

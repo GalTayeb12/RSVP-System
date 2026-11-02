@@ -9,6 +9,7 @@ import {
   type CampaignKind,
   type TemplateVars,
 } from '@/lib/campaign'
+import { campaignInputSchema } from '@/lib/zod-schemas'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -51,6 +52,12 @@ export async function createCampaignAction(
 ): Promise<CreateCampaignResult> {
   const supabase = await getOwnerOrAdminClient(eventId)
   if (!supabase) return { error: 'אין הרשאה לשליחת הודעות' }
+
+  // Validate input with Zod
+  const parsed = campaignInputSchema.safeParse(input)
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? 'קלט לא תקין' }
+  }
 
   const { data: event } = await supabase
     .from('events')
@@ -107,7 +114,8 @@ export async function createCampaignAction(
     .single()
 
   if (campaignErr || !campaign) {
-    return { error: `שגיאה ביצירת הסבב: ${campaignErr?.message}` }
+    console.error('[createCampaignAction] campaign insert:', campaignErr?.message)
+    return { error: 'שגיאה ביצירת הסבב. נסה שנית.' }
   }
 
   // Build per-guest message rows with filled text
@@ -128,7 +136,10 @@ export async function createCampaignAction(
     const { error } = await supabase
       .from('messages')
       .insert(messages.slice(i, i + CHUNK))
-    if (error) return { error: `שגיאה ביצירת הודעות: ${error.message}` }
+    if (error) {
+      console.error('[createCampaignAction] messages insert:', error.message)
+      return { error: 'שגיאה ביצירת הודעות. נסה שנית.' }
+    }
   }
 
   revalidatePath(`/events/${eventId}/send`)
@@ -151,7 +162,10 @@ export async function markMessageSent(
     .update({ status: 'sent', sent_at: new Date().toISOString() })
     .eq('id', messageId)
 
-  if (error) return { error: error.message }
+  if (error) {
+    console.error('[markMessageSent]', error.message)
+    return { error: 'שגיאה בעדכון סטטוס.' }
+  }
   return { success: true }
 }
 
@@ -179,7 +193,10 @@ export async function fetchCampaignQueue(
     .eq('campaign_id', campaignId)
     .order('created_at')
 
-  if (error) return { error: error.message }
+  if (error) {
+    console.error('[fetchCampaignQueue]', error.message)
+    return { error: 'שגיאה בטעינת התור.' }
+  }
 
   return (data ?? []).map((m) => ({
     id: m.id,

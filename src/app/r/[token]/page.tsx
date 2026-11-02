@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { createAdminClient } from '@/lib/supabase/admin'
 import RsvpClient from './RsvpClient'
 import { DEFAULT_RSVP_SETTINGS, type RsvpSettings, type RsvpAnswers } from '@/lib/rsvp-settings'
+import { tokenSchema } from '@/lib/zod-schemas'
 
 export const instant = false
 
@@ -13,6 +14,7 @@ export async function generateMetadata({
   params: Promise<Params>
 }): Promise<Metadata> {
   const { token } = await params
+  if (!tokenSchema.safeParse(token).success) return { robots: 'noindex' }
   const supabase = createAdminClient()
 
   const { data } = await supabase
@@ -41,6 +43,16 @@ export default async function RsvpPage({
   params: Promise<Params>
 }) {
   const { token } = await params
+  if (!tokenSchema.safeParse(token).success) {
+    return (
+      <div dir="rtl" className="flex min-h-screen items-center justify-center bg-background p-6 text-center">
+        <div>
+          <h1 className="mt-4 text-xl font-bold">הקישור לא תקין</h1>
+          <p className="mt-2 text-sm text-muted">ייתכן שהקישור שגוי או שפג תוקפו.</p>
+        </div>
+      </div>
+    )
+  }
   const supabase = createAdminClient()
 
   const { data: guest } = await supabase

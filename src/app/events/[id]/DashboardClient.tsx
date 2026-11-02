@@ -145,6 +145,30 @@ export default function DashboardClient({
     XLSX.writeFile(wb, 'guests.xlsx')
   }, [guests])
 
+  const handleFullBackup = useCallback(async () => {
+    const XLSX = await import('xlsx')
+    const rows = guests.map((g) => ({
+      id: g.id,
+      שם_פרטי: g.first_name,
+      שם_משפחה: g.last_name ?? '',
+      טלפון: g.phone,
+      צד: g.side,
+      קבוצה: g.group_name ?? '',
+      'מוזמנים (רשומה)': g.invited_count,
+      'מגיעים (מאושר)': g.attending_count,
+      סטטוס: g.status,
+      'יצא מרשימה': g.opted_out ? 'כן' : 'לא',
+      'תאריך תשובה': g.responded_at ?? '',
+      rsvp_answers: g.rsvp_answers ? JSON.stringify(g.rsvp_answers) : '',
+      rsvp_token: g.rsvp_token,
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'גיבוי מלא')
+    const date = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `backup-${date}.xlsx`)
+  }, [guests])
+
   if (guests.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center space-y-4">
@@ -422,8 +446,15 @@ export default function DashboardClient({
         </div>
       )}
 
-      {/* Export button */}
-      <div className="flex justify-end">
+      {/* Export buttons */}
+      <div className="flex justify-end gap-2">
+        <button
+          onClick={handleFullBackup}
+          className="rounded-xl border border-border bg-card px-4 py-2 text-sm transition hover:bg-background"
+          title="גיבוי מלא של כל השדות — שמור בצד בטוח"
+        >
+          גיבוי מלא
+        </button>
         <button
           onClick={handleExport}
           className="rounded-xl border border-border bg-card px-4 py-2 text-sm transition hover:bg-background"

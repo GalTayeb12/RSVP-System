@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { normalizePhone } from '@/lib/phone'
 import { checkManualUpdateAllowed } from '@/lib/rsvp-manual'
+import { guestDataSchema } from '@/lib/zod-schemas'
 import type { RsvpAnswers } from '@/lib/rsvp-settings'
 
 export type GuestData = {
@@ -38,6 +39,12 @@ async function getAccessibleClient(eventId: string) {
   return data ? supabase : null
 }
 
+function validateGuest(data: GuestData): string | null {
+  const result = guestDataSchema.safeParse(data)
+  if (!result.success) return result.error.issues[0]?.message ?? 'קלט לא תקין'
+  return null
+}
+
 // ─── Add ─────────────────────────────────────────────────────────────────────
 
 export async function addGuest(
@@ -47,9 +54,8 @@ export async function addGuest(
   const supabase = await getAccessibleClient(eventId)
   if (!supabase) return { error: 'אין גישה לאירוע' }
 
-  if (!data.first_name.trim()) return { error: 'שם פרטי הוא שדה חובה' }
-  if (!['groom', 'bride', 'shared'].includes(data.side))
-    return { error: 'יש לבחור צד' }
+  const validErr = validateGuest(data)
+  if (validErr) return { error: validErr }
 
   const phoneResult = normalizePhone(data.phone)
   if ('error' in phoneResult) return { error: phoneResult.error }
@@ -82,7 +88,10 @@ export async function addGuest(
     note: data.note?.trim() || null,
   })
 
-  if (error) return { error: `שגיאה בשמירה: ${error.message}` }
+  if (error) {
+    console.error('[addGuest]', error.message)
+    return { error: 'שגיאה בשמירה. נסה שנית.' }
+  }
 
   revalidatePath(`/events/${eventId}/guests`)
   return { success: true }
@@ -98,7 +107,8 @@ export async function updateGuest(
   const supabase = await getAccessibleClient(eventId)
   if (!supabase) return { error: 'אין גישה לאירוע' }
 
-  if (!data.first_name.trim()) return { error: 'שם פרטי הוא שדה חובה' }
+  const validErr = validateGuest(data)
+  if (validErr) return { error: validErr }
 
   const phoneResult = normalizePhone(data.phone)
   if ('error' in phoneResult) return { error: phoneResult.error }
@@ -135,7 +145,10 @@ export async function updateGuest(
     .eq('id', guestId)
     .eq('event_id', eventId)
 
-  if (error) return { error: `שגיאה בשמירה: ${error.message}` }
+  if (error) {
+    console.error('[updateGuest]', error.message)
+    return { error: 'שגיאה בשמירה. נסה שנית.' }
+  }
 
   revalidatePath(`/events/${eventId}/guests`)
   return { success: true }
@@ -156,13 +169,18 @@ export async function deleteGuest(
     .eq('id', guestId)
     .eq('event_id', eventId)
 
-  if (error) return { error: `שגיאה במחיקה: ${error.message}` }
+  if (error) {
+    console.error('[deleteGuest]', error.message)
+    return { error: 'שגיאה במחיקה. נסה שנית.' }
+  }
 
   revalidatePath(`/events/${eventId}/guests`)
   return { success: true }
 }
 
 // ─── Bulk import ─────────────────────────────────────────────────────────────
+
+const MAX_IMPORT_ROWS = 3_000
 
 export async function importGuests(
   eventId: string,
@@ -171,6 +189,9 @@ export async function importGuests(
   const supabase = await getAccessibleClient(eventId)
   if (!supabase) return { imported: 0, error: 'אין גישה לאירוע' }
   if (!guests.length) return { imported: 0 }
+  if (guests.length > MAX_IMPORT_ROWS) {
+    return { imported: 0, error: `הקובץ מכיל יותר מ-${MAX_IMPORT_ROWS} שורות` }
+  }
 
   const rows = guests.map((g) => ({
     event_id: eventId,
@@ -190,7 +211,10 @@ export async function importGuests(
     const { error } = await supabase
       .from('guests')
       .insert(rows.slice(i, i + CHUNK))
-    if (error) return { imported, error: `שגיאה ביבוא: ${error.message}` }
+    if (error) {
+      console.error('[importGuests]', error.message)
+      return { imported, error: 'שגיאה ביבוא. נסה שנית.' }
+    }
     imported += rows.slice(i, i + CHUNK).length
   }
 
@@ -200,11 +224,6 @@ export async function importGuests(
 
 // ─── Manual RSVP override (after phone call) ────────────────────────────────
 
-/**
- * Updates a guest's RSVP status manually (e.g. after a phone call).
- * Blocked if the guest's last recorded answer came from their personal link —
- * in that case they must update themselves.
- */
 export async function manualUpdateRsvp(
   guestId: string,
   eventId: string,
@@ -216,6 +235,10 @@ export async function manualUpdateRsvp(
 ): Promise<{ success: true } | { error: string }> {
   const supabase = await getAccessibleClient(eventId)
   if (!supabase) return { error: 'אין גישה לאירוע' }
+
+  if (!['attending', 'declined', 'maybe'].includes(input.status)) {
+    return { error: 'סטטוס לא תקין' }
+  }
 
   // Check whether the last recorded answer came from the personal link
   const { data: lastHistory } = await supabase
@@ -243,7 +266,10 @@ export async function manualUpdateRsvp(
     .eq('id', guestId)
     .eq('event_id', eventId)
 
-  if (error) return { error: `שגיאה בשמירה: ${error.message}` }
+  if (error) {
+    console.error('[manualUpdateRsvp]', error.message)
+    return { error: 'שגיאה בשמירה. נסה שנית.' }
+  }
 
   await supabase.from('rsvp_history').insert({
     guest_id: guestId,
@@ -279,7 +305,10 @@ export async function updateGuestStatus(
     .eq('id', guestId)
     .eq('event_id', eventId)
 
-  if (error) return { error: `שגיאה בעדכון: ${error.message}` }
+  if (error) {
+    console.error('[updateGuestStatus]', error.message)
+    return { error: 'שגיאה בעדכון. נסה שנית.' }
+  }
 
   await supabase.from('rsvp_history').insert({
     guest_id: guestId,
