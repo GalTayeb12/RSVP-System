@@ -13,10 +13,11 @@
  *   WHATSAPP_GRAPH_VERSION   — optional, default v25.0
  *
  * The script:
- *   1. Fetches existing templates (to skip creation if already present).
- *   2. Uploads public/template-sample.jpg as the header sample image.
- *   3. Creates any missing templates.
- *   4. Prints the status of every template.
+ *   1. Validates every template definition locally before sending to Meta.
+ *   2. Fetches existing templates (to skip creation if already present).
+ *   3. Uploads public/template-sample.jpg as the header sample image.
+ *   4. Creates any missing templates.
+ *   5. Prints a summary: created X, failed Y.
  *
  * Template sample image:
  *   Place a generic 1200×630 JPEG at public/template-sample.jpg.
@@ -26,6 +27,10 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
+import {
+  validateTemplateDef,
+  type TemplateDef,
+} from '../src/lib/whatsapp-template-validator.js'
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -134,21 +139,10 @@ async function fetchExistingTemplates(): Promise<Map<string, ExistingTemplate>> 
 
 // ── Template definitions ──────────────────────────────────────────────────────
 
-type Component =
-  | { type: 'HEADER'; format: string; example?: { header_handle: string[] } }
-  | { type: 'BODY'; text: string; example?: { body_text: string[][] } }
-  | { type: 'FOOTER'; text: string }
-  | { type: 'BUTTONS'; buttons: { type: string; text: string; url?: string }[] }
-
-interface TemplateDef {
-  name:       string
-  category:   'MARKETING' | 'UTILITY'
-  language:   string
-  components: Component[]
-}
-
 function buildTemplates(imageHandle: string | null): TemplateDef[] {
-  const buttonUrl = `${SITE_URL}/r/{{1}}`
+  const sampleToken = 'a1b2c3d4e5f60718'
+  const buttonUrl   = `${SITE_URL}/r/{{1}}`
+  const btnExample  = [`${SITE_URL}/r/${sampleToken}`]
 
   const invitation: TemplateDef = {
     name:     'rsvp_invitation',
@@ -162,13 +156,13 @@ function buildTemplates(imageHandle: string | null): TemplateDef[] {
         type: 'BODY',
         text: `שלום {{1}},\nהוזמנתם לחתונה של {{2}}\nבתאריך {{3}} ב{{4}}.\nפרטים נוספים ואישור הגעה בלינק המצורף:\n${SITE_URL}/r/{{5}}\nנשמח לראותכם!`,
         example: {
-          body_text: [['דנה', 'נטע פרטוש ורון אוטמזגין', '05.11.26 בשעה 19:30', 'גני דניאל, דימונה', 'a1b2c3d4e5f60718']],
+          body_text: [['דנה', 'נטע פרטוש ורון אוטמזגין', '05.11.26 בשעה 19:30', 'גני דניאל, דימונה', sampleToken]],
         },
       },
       { type: 'FOOTER', text: 'להסרה מרשימת התפוצה השיבו "הסר"' },
       {
         type: 'BUTTONS',
-        buttons: [{ type: 'URL', text: 'לפרטים ואישור הגעה', url: buttonUrl }],
+        buttons: [{ type: 'URL', text: 'לפרטים ואישור הגעה', url: buttonUrl, example: btnExample }],
       },
     ],
   }
@@ -182,13 +176,13 @@ function buildTemplates(imageHandle: string | null): TemplateDef[] {
         type: 'BODY',
         text: `שלום {{1}},\nרק מזכירים שהחתונה של {{2}} מתקרבת ({{3}}), ועדיין לא קיבלנו ממך אישור הגעה.\nלאישור בלחיצה:\n${SITE_URL}/r/{{4}}\nתודה!`,
         example: {
-          body_text: [['דנה', 'נטע פרטוש ורון אוטמזגין', '05.11.26 בשעה 19:30', 'a1b2c3d4e5f60718']],
+          body_text: [['דנה', 'נטע פרטוש ורון אוטמזגין', '05.11.26 בשעה 19:30', sampleToken]],
         },
       },
       { type: 'FOOTER', text: 'להסרה מרשימת התפוצה השיבו "הסר"' },
       {
         type: 'BUTTONS',
-        buttons: [{ type: 'URL', text: 'לאישור הגעה', url: buttonUrl }],
+        buttons: [{ type: 'URL', text: 'לאישור הגעה', url: buttonUrl, example: btnExample }],
       },
     ],
   }
@@ -207,7 +201,7 @@ function buildTemplates(imageHandle: string | null): TemplateDef[] {
       },
       {
         type: 'BUTTONS',
-        buttons: [{ type: 'URL', text: 'פרטים וניווט', url: buttonUrl }],
+        buttons: [{ type: 'URL', text: 'פרטים וניווט', url: buttonUrl, example: btnExample }],
       },
     ],
   }
@@ -219,9 +213,9 @@ function buildTemplates(imageHandle: string | null): TemplateDef[] {
     components: [
       {
         type: 'BODY',
-        text: `שלום {{1}},\nתודה שבאתם לחגוג איתנו! היה מרגש שהייתם חלק מהיום שלנו.\nבאהבה, {{2}}`,
+        text: `שלום {{1}}, {{2}} מודים לך מכל הלב שבאת לחגוג איתם!\nהיה מרגש שהיית חלק מהיום הזה.`,
         example: {
-          body_text: [['דנה', 'נטע פרטוש ורון אוטמזגין']],
+          body_text: [['דנה', 'נטע ורון']],
         },
       },
     ],
@@ -230,10 +224,33 @@ function buildTemplates(imageHandle: string | null): TemplateDef[] {
   return [invitation, reminder, event_day, thank_you]
 }
 
+// ── Pre-flight local validation ───────────────────────────────────────────────
+
+function preflight(templates: TemplateDef[]): boolean {
+  let hasErrors = false
+  for (const tpl of templates) {
+    const errors = validateTemplateDef(tpl)
+    for (const err of errors) {
+      console.error(`  ✗ [${err.template}] ${err.issue}`)
+      hasErrors = true
+    }
+  }
+  return !hasErrors
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
   console.log('WhatsApp Templates Setup\n')
+
+  // Build with a dummy handle first to validate locally
+  const templatesForValidation = buildTemplates('dummy-handle')
+  console.log('Running pre-flight validation…')
+  if (!preflight(templatesForValidation)) {
+    console.error('\n✗ Pre-flight validation failed. Fix the errors above and re-run.')
+    process.exit(1)
+  }
+  console.log('  ✓ All templates passed local validation.\n')
 
   const existing = await fetchExistingTemplates()
 
@@ -241,15 +258,19 @@ async function main() {
 
   // Upload sample image only if invitation template doesn't exist yet
   if (!existing.has('rsvp_invitation')) {
-    console.log('\nUploading sample image for invitation header…')
+    console.log('Uploading sample image for invitation header…')
     imageHandle = await uploadSampleImage()
+    console.log()
   } else {
-    console.log('\nrsvp_invitation already exists — skipping image upload.')
+    console.log('rsvp_invitation already exists — skipping image upload.\n')
   }
 
   const templates = buildTemplates(imageHandle)
 
-  console.log('\nProcessing templates:\n')
+  console.log('Processing templates:\n')
+
+  let createdCount = 0
+  let failedCount  = 0
 
   for (const tpl of templates) {
     const existingEntry = existing.get(tpl.name)
@@ -271,19 +292,28 @@ async function main() {
         components: tpl.components,
       })
       console.log('PENDING')
+      createdCount++
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      // Error 100 subcode 2388102 means the template already exists
+      // Error subcode 2388102 means the template already exists under a different status
       if (msg.includes('2388102') || msg.includes('already exists')) {
         console.log('already exists')
       } else {
         console.log(`ERROR: ${msg}`)
+        failedCount++
       }
     }
   }
 
-  console.log('\nDone. Wait for Meta to review the templates (usually a few minutes to hours).')
-  console.log('Run again to check status, or visit Meta Business Manager > WhatsApp > Templates.\n')
+  console.log(`\nסיכום: נוצרו ${createdCount}, נכשלו ${failedCount}.`)
+
+  if (failedCount > 0) {
+    console.error('✗ חלק מהתבניות נכשלו. עיין בשגיאות למעלה.')
+    process.exit(1)
+  }
+
+  console.log('המתן לאישור Meta (בדרך כלל כמה דקות עד שעות).')
+  console.log('הרץ שוב לבדיקת סטטוס, או בקר ב-Meta Business Manager > WhatsApp > Templates.\n')
 }
 
 main().catch((err) => {
