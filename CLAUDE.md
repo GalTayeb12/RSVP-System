@@ -31,6 +31,7 @@ There is no public sign-up. Only the admin creates users.
 ## Database
 
 - Schema: `supabase/migrations/0001_initial_schema.sql`. Every schema change = a new numbered migration file; never edit an applied migration.
+- **Every schema change = new migration file + update `src/lib/database.types.ts`**. The types file is the single source of truth for TypeScript — a column that doesn't exist in `database.types.ts` will be caught at build time.
 - Tables: `profiles`, `events`, `event_members`, `guests`, `rsvp_history`, `campaigns`, `messages`.
 - Row Level Security is on for every table. Access goes through `is_admin()` and `can_access_event(event_id)`. Keep it that way for any new table.
 - One guest row = one phone number (may represent several people via `invited_count` / `attending_count`). `unique (event_id, phone)`.

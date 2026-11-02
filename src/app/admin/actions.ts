@@ -35,7 +35,7 @@ export async function createUser(
   const username = (formData.get('username') as string)?.trim()
   const fullName = (formData.get('full_name') as string)?.trim()
   const password = formData.get('password') as string
-  const role = formData.get('role') as string
+  const role = formData.get('role') as 'admin' | 'owner' | 'helper'
 
   if (!username || !fullName || !password || !role) {
     return { error: 'יש למלא את כל השדות' }

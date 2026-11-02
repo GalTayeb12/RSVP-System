@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import { createEvent } from './actions'
 
 type State = { error?: string; success?: boolean }
-type Owner = { id: string; username: string; full_name: string }
+type Owner = { id: string; username: string; full_name: string | null }
 
 export default function EventForm({ owners }: { owners: Owner[] }) {
   const [isPending, startTransition] = useTransition()
