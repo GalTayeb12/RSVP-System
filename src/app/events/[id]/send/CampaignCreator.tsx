@@ -17,7 +17,8 @@ type Props = {
   eventInfo: EventInfo
   sampleGuestName: string
   groups: string[]
-  onCreated: (campaignId: string, total: number) => void
+  canAutoSend: boolean
+  onCreated: (campaignId: string, total: number, channel: 'whatsapp_link' | 'whatsapp_api') => void
   onCancel: () => void
 }
 
@@ -46,10 +47,12 @@ export default function CampaignCreator({
   eventInfo,
   sampleGuestName,
   groups,
+  canAutoSend,
   onCreated,
   onCancel,
 }: Props) {
   const [kind, setKind] = useState<CampaignKind>('invitation')
+  const [channel, setChannel] = useState<'whatsapp_link' | 'whatsapp_api'>('whatsapp_link')
   const [template, setTemplate] = useState(DEFAULT_TEMPLATES[kind])
   const [audience, setAudience] = useState(DEFAULT_AUDIENCE[kind])
   const [error, setError] = useState('')
@@ -103,11 +106,12 @@ export default function CampaignCreator({
         kind,
         template,
         audience,
+        channel,
       })
       if ('error' in result) {
         setError(result.error)
       } else {
-        onCreated(result.campaignId, result.messageCount)
+        onCreated(result.campaignId, result.messageCount, channel)
       }
     })
   }
@@ -157,8 +161,8 @@ export default function CampaignCreator({
         </select>
       </div>
 
-      {/* Template editor */}
-      <div>
+      {/* Template editor — only for manual (wa.me link) channel */}
+      <div className={channel === 'whatsapp_api' ? 'hidden' : ''}>
         <label className="mb-2 block text-sm font-medium">תוכן ההודעה</label>
 
         {/* Variable buttons */}
@@ -196,6 +200,44 @@ export default function CampaignCreator({
         </div>
       </div>
 
+      {/* Channel selector */}
+      {canAutoSend && (
+        <div>
+          <label className="mb-2 block text-sm font-medium">שיטת שליחה</label>
+          <div className="grid grid-cols-2 gap-2">
+            {(
+              [
+                { value: 'whatsapp_link', label: 'שליחה ידנית', desc: 'פותח וואטסאפ בלחיצה לכל מוזמן' },
+                { value: 'whatsapp_api',  label: 'שליחה אוטומטית', desc: 'Meta Cloud API — עלות ~$0.05 להודעה' },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setChannel(opt.value)}
+                className={`rounded-xl border p-3 text-right transition ${
+                  channel === opt.value
+                    ? 'border-accent bg-accent/10 text-accent'
+                    : 'border-border hover:bg-background'
+                }`}
+              >
+                <p className="text-sm font-medium">{opt.label}</p>
+                <p className="mt-0.5 text-xs text-muted">{opt.desc}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* For API channel: hide template editor, show note */}
+      {channel === 'whatsapp_api' && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          תוכן ההודעה נקבע לפי תבנית Meta מאושרת ({
+            process.env.NODE_ENV === 'development' ? 'כרגע: hello_world (מצב בדיקה)' : 'תבנית מאושרת'
+          }). אין צורך לערוך טקסט.
+        </div>
+      )}
+
       {error && (
         <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
@@ -204,7 +246,7 @@ export default function CampaignCreator({
 
       <button
         onClick={handleSubmit}
-        disabled={isPending || !template.trim()}
+        disabled={isPending || (channel === 'whatsapp_link' && !template.trim())}
         className="w-full rounded-2xl bg-foreground py-4 text-center font-bold text-background transition hover:opacity-90 disabled:opacity-50"
       >
         {isPending ? 'יוצר...' : 'צור סבב שליחה'}

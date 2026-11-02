@@ -18,6 +18,8 @@ type Guest = GuestRow & {
   rsvp_answers: { transport?: { needs_transport?: boolean } } | null
   lastHistory: LastHistory
   lastSent: string | null
+  lastMsgStatus: 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | null
+  lastMsgError: string | null
 }
 
 type Props = {
@@ -70,6 +72,7 @@ export default function GuestsClient({
   const [filterLandline, setFilterLandline] = useState(initialLandline)
   const [filterTransport, setFilterTransport] = useState(initialTransport)
   const [filterNoInvitation, setFilterNoInvitation] = useState(false)
+  const [filterMsgFailed, setFilterMsgFailed] = useState(false)
 
   // Form visibility
   const [showForm, setShowForm] = useState(false)
@@ -106,9 +109,10 @@ export default function GuestsClient({
       if (filterLandline && !isLandline(g.phone)) return false
       if (filterTransport && !g.rsvp_answers?.transport?.needs_transport) return false
       if (filterNoInvitation && g.lastSent !== null) return false
+      if (filterMsgFailed && g.lastMsgStatus !== 'failed') return false
       return true
     })
-  }, [guests, search, filterSide, filterGroup, filterStatus, filterLandline, filterTransport, filterNoInvitation])
+  }, [guests, search, filterSide, filterGroup, filterStatus, filterLandline, filterTransport, filterNoInvitation, filterMsgFailed])
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   function handleFormSuccess() {
@@ -226,6 +230,12 @@ export default function GuestsClient({
           לא קיבל הזמנה
         </button>
         <button
+          onClick={() => setFilterMsgFailed((v) => !v)}
+          className={`rounded-lg border px-4 py-2 text-sm transition ${filterMsgFailed ? 'border-red-400 bg-red-50 text-red-700' : 'border-border hover:bg-background'}`}
+        >
+          הודעה נכשלה
+        </button>
+        <button
           onClick={() => {
             setEditingGuest(null)
             setShowForm(true)
@@ -294,12 +304,7 @@ export default function GuestsClient({
                       <StatusCell guest={g} />
                     </td>
                     <td className="px-4 py-3 text-xs text-muted">
-                      {g.lastSent
-                        ? new Date(g.lastSent).toLocaleDateString('he-IL', {
-                            day: 'numeric',
-                            month: 'numeric',
-                          })
-                        : '—'}
+                      <MsgStatusCell guest={g} />
                     </td>
                     <td className="px-4 py-3">
                       <LinkButtons rsvpToken={g.rsvp_token} />
@@ -501,6 +506,52 @@ function LinkButtons({ rsvpToken }: { rsvpToken: string }) {
       >
         🔗
       </a>
+    </span>
+  )
+}
+
+// ── Message status icon ───────────────────────────────────────────────────────
+
+const MSG_STATUS_ICON: Record<string, string> = {
+  queued:    '⏳',
+  sent:      '✓',
+  delivered: '✓✓',
+  read:      '✓✓',
+  failed:    '✗',
+}
+const MSG_STATUS_COLOR: Record<string, string> = {
+  queued:    'text-muted',
+  sent:      'text-muted',
+  delivered: 'text-blue-600',
+  read:      'text-green-600',
+  failed:    'text-red-600',
+}
+
+function MsgStatusCell({ guest }: { guest: Guest }) {
+  if (!guest.lastMsgStatus) {
+    return (
+      <span>
+        {guest.lastSent
+          ? new Date(guest.lastSent).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })
+          : '—'}
+      </span>
+    )
+  }
+  const icon  = MSG_STATUS_ICON[guest.lastMsgStatus]  ?? '?'
+  const color = MSG_STATUS_COLOR[guest.lastMsgStatus] ?? ''
+  return (
+    <span className="flex items-center gap-1">
+      <span className={`font-bold ${color}`} title={guest.lastMsgError ?? guest.lastMsgStatus}>
+        {icon}
+      </span>
+      {guest.lastSent && (
+        <span>
+          {new Date(guest.lastSent).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}
+        </span>
+      )}
+      {guest.lastMsgStatus === 'failed' && guest.lastMsgError && (
+        <span className="text-red-500 text-xs" title={guest.lastMsgError}>⚠</span>
+      )}
     </span>
   )
 }

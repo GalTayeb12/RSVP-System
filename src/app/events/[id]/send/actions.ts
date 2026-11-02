@@ -10,6 +10,11 @@ import {
   type TemplateVars,
 } from '@/lib/campaign'
 import { campaignInputSchema } from '@/lib/zod-schemas'
+import {
+  isWhatsAppConfigured,
+  buildInteractiveButtonsPayload,
+  sendWhatsAppInteractive,
+} from '@/lib/whatsapp'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -48,15 +53,22 @@ export type CreateCampaignResult =
 
 export async function createCampaignAction(
   eventId: string,
-  input: { kind: CampaignKind; template: string; audience: string },
+  input: { kind: CampaignKind; template: string; audience: string; channel?: 'whatsapp_link' | 'whatsapp_api' },
 ): Promise<CreateCampaignResult> {
   const supabase = await getOwnerOrAdminClient(eventId)
   if (!supabase) return { error: 'אין הרשאה לשליחת הודעות' }
 
   // Validate input with Zod
+  const channel = input.channel ?? 'whatsapp_link'
+
   const parsed = campaignInputSchema.safeParse(input)
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? 'קלט לא תקין' }
+  }
+
+  // Validate channel availability
+  if (channel === 'whatsapp_api' && !isWhatsAppConfigured()) {
+    return { error: 'WhatsApp API לא מוגדר בשרת' }
   }
 
   const { data: event } = await supabase
@@ -106,7 +118,7 @@ export async function createCampaignAction(
     .insert({
       event_id: eventId,
       kind: input.kind,
-      channel: 'whatsapp_link',
+      channel,
       template_text: input.template,
       audience: input.audience,
     })
@@ -118,17 +130,20 @@ export async function createCampaignAction(
     return { error: 'שגיאה ביצירת הסבב. נסה שנית.' }
   }
 
-  // Build per-guest message rows with filled text
+  // Build per-guest message rows
+  // For whatsapp_api channel: template params are resolved at send time, no text stored
   const messages = audience.map((g) => ({
     campaign_id: campaign.id,
     guest_id: g.id,
-    channel: 'whatsapp_link' as const,
+    channel,
     status: 'queued' as const,
-    text: fillTemplate(input.template, {
-      ...baseVars,
-      '{שם}': g.first_name,
-      '{קישור}': `${origin}/r/${g.rsvp_token}`,
-    }),
+    text: channel === 'whatsapp_link'
+      ? fillTemplate(input.template, {
+          ...baseVars,
+          '{שם}': g.first_name,
+          '{קישור}': `${origin}/r/${g.rsvp_token}`,
+        })
+      : null,
   }))
 
   const CHUNK = 200
@@ -208,4 +223,43 @@ export async function fetchCampaignQueue(
       phone: '',
     },
   }))
+}
+
+// ── Send test interactive message (admin only) ────────────────────────────────
+
+export async function sendTestButtonAction(
+  eventId: string,
+  phone: string,
+  rsvpToken: string,
+): Promise<{ success: true } | { error: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'לא מחובר' }
+
+  const { data: profile } = await supabase
+    .from('profiles').select('role').eq('id', user.id).single()
+  if (profile?.role !== 'admin') return { error: 'רק אדמין יכול לשלוח הודעת בדיקה' }
+
+  if (!isWhatsAppConfigured()) return { error: 'WhatsApp API לא מוגדר' }
+
+  // Validate the event exists and user can access it
+  const { data: event } = await supabase
+    .from('events').select('id').eq('id', eventId).single()
+  if (!event) return { error: 'אירוע לא נמצא' }
+
+  const payload = buildInteractiveButtonsPayload({
+    phone,
+    bodyText: 'בדיקת כפתורי RSVP — לחץ/י על אחד הכפתורים:',
+    buttons: [
+      { id: `rsvp:yes:${rsvpToken}`, title: 'מגיע/ה' },
+      { id: `rsvp:no:${rsvpToken}`,  title: 'לא אוכל להגיע' },
+    ],
+  })
+
+  const result = await sendWhatsAppInteractive(payload)
+  if ('error' in result) {
+    console.error('[sendTestButtonAction]', result.error)
+    return { error: `שגיאה בשליחה: ${result.error}` }
+  }
+  return { success: true }
 }

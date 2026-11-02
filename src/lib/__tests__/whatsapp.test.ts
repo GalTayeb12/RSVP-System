@@ -1,0 +1,233 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { createHmac } from 'crypto'
+
+// ── Module setup ──────────────────────────────────────────────────────────────
+// whatsapp.ts has `import 'server-only'` which throws in test environments.
+// Mock the package before importing.
+vi.mock('server-only', () => ({}))
+// Mock whatsapp-config so TEST_MODE can be controlled per test.
+vi.mock('@/lib/whatsapp-config', () => ({
+  TEST_MODE: false,          // production mode by default in tests
+  TEST_TEMPLATE: { name: 'hello_world', lang: 'en_US' },
+  TEMPLATE_MAP: {
+    invitation: { name: 'rsvp_invitation', lang: 'he' },
+    reminder:   { name: 'rsvp_reminder',   lang: 'he' },
+    event_day:  { name: 'rsvp_event_day',  lang: 'he' },
+    thank_you:  { name: 'rsvp_thank_you',  lang: 'he' },
+  },
+  RATE_USD_PER_MESSAGE: 0.05,
+}))
+
+import {
+  buildTemplatePayload,
+  verifyWebhookSignature,
+  parseButtonPayload,
+  shouldUpdateMessageStatus,
+  isOverDailyLimit,
+  type BuildTemplateArgs,
+} from '../whatsapp'
+
+// ── buildTemplatePayload ──────────────────────────────────────────────────────
+
+const baseArgs: BuildTemplateArgs = {
+  phone:    '+972501234567',
+  kind:     'invitation',
+  guestName:    'דוד',
+  hostNames:    'יוסי ומיה',
+  eventDate:    'ה׳ בניסן תשפ״ה',
+  venueName:    'אולם הורד',
+  rsvpToken:    'abc1234500000000',
+}
+
+describe('buildTemplatePayload — production mode', () => {
+  it('builds correct template name and language', () => {
+    const p = buildTemplatePayload(baseArgs) as Record<string, unknown>
+    const tpl = p.template as { name: string; language: { code: string } }
+    expect(tpl.name).toBe('rsvp_invitation')
+    expect(tpl.language.code).toBe('he')
+  })
+
+  it('strips leading + from phone number', () => {
+    const p = buildTemplatePayload(baseArgs) as { to: string }
+    expect(p.to).toBe('972501234567')
+  })
+
+  it('includes body params in correct order', () => {
+    const p = buildTemplatePayload(baseArgs) as { template: { components: unknown[] } }
+    const body = (p.template.components as Array<{ type: string; parameters?: unknown[] }>)
+      .find((c) => c.type === 'body')
+    expect(body).toBeDefined()
+    const params = body!.parameters as Array<{ text: string }>
+    expect(params[0].text).toBe('דוד')
+    expect(params[1].text).toBe('יוסי ומיה')
+    expect(params[2].text).toBe('ה׳ בניסן תשפ״ה')
+    expect(params[3].text).toBe('אולם הורד')
+  })
+
+  it('encodes rsvp:yes and rsvp:no payloads with token', () => {
+    const p = buildTemplatePayload(baseArgs) as { template: { components: unknown[] } }
+    const components = p.template.components as Array<{
+      type: string; sub_type?: string; index?: string
+      parameters?: Array<{ payload?: string; text?: string }>
+    }>
+    const yes = components.find((c) => c.sub_type === 'quick_reply' && c.index === '1')
+    const no  = components.find((c) => c.sub_type === 'quick_reply' && c.index === '2')
+    expect(yes?.parameters?.[0].payload).toBe('rsvp:yes:abc1234500000000')
+    expect(no?.parameters?.[0].payload).toBe('rsvp:no:abc1234500000000')
+  })
+
+  it('URL button suffix is the rsvp_token', () => {
+    const p = buildTemplatePayload(baseArgs) as { template: { components: unknown[] } }
+    const components = p.template.components as Array<{
+      type: string; sub_type?: string; index?: string
+      parameters?: Array<{ text?: string }>
+    }>
+    const urlBtn = components.find((c) => c.sub_type === 'url' && c.index === '0')
+    expect(urlBtn?.parameters?.[0].text).toBe('abc1234500000000')
+  })
+
+  it('includes header when invitationImageUrl is provided', () => {
+    const p = buildTemplatePayload({ ...baseArgs, invitationImageUrl: 'https://example.com/img.jpg' }) as {
+      template: { components: Array<{ type: string; parameters?: unknown[] }> }
+    }
+    const header = p.template.components.find((c) => c.type === 'header')
+    expect(header).toBeDefined()
+  })
+
+  it('omits header when invitationImageUrl is null', () => {
+    const p = buildTemplatePayload({ ...baseArgs, invitationImageUrl: null }) as {
+      template: { components: Array<{ type: string }> }
+    }
+    const header = p.template.components.find((c) => c.type === 'header')
+    expect(header).toBeUndefined()
+  })
+})
+
+// ── verifyWebhookSignature ────────────────────────────────────────────────────
+
+describe('verifyWebhookSignature', () => {
+  const secret = 'my_app_secret'
+  const body   = '{"object":"whatsapp_business_account"}'
+
+  function makeSignature(b: string, s: string) {
+    return 'sha256=' + createHmac('sha256', s).update(b, 'utf8').digest('hex')
+  }
+
+  it('accepts a valid signature', () => {
+    expect(verifyWebhookSignature(body, makeSignature(body, secret), secret)).toBe(true)
+  })
+
+  it('rejects a wrong signature', () => {
+    const bad = 'sha256=' + 'a'.repeat(64)
+    expect(verifyWebhookSignature(body, bad, secret)).toBe(false)
+  })
+
+  it('rejects a signature without sha256= prefix', () => {
+    const raw = createHmac('sha256', secret).update(body, 'utf8').digest('hex')
+    expect(verifyWebhookSignature(body, raw, secret)).toBe(false)
+  })
+
+  it('rejects when body is tampered', () => {
+    const sig = makeSignature(body, secret)
+    expect(verifyWebhookSignature(body + ' ', sig, secret)).toBe(false)
+  })
+})
+
+// ── parseButtonPayload ────────────────────────────────────────────────────────
+
+describe('parseButtonPayload', () => {
+  it('parses rsvp:yes:<token>', () => {
+    const r = parseButtonPayload('rsvp:yes:abc123token')
+    expect(r).toEqual({ action: 'rsvp_yes', token: 'abc123token' })
+  })
+
+  it('parses rsvp:no:<token>', () => {
+    const r = parseButtonPayload('rsvp:no:abc123token')
+    expect(r).toEqual({ action: 'rsvp_no', token: 'abc123token' })
+  })
+
+  it('parses count:<n>:<token>', () => {
+    const r = parseButtonPayload('count:3:abc123token')
+    expect(r).toEqual({ action: 'count', count: 3, token: 'abc123token' })
+  })
+
+  it('returns null for unknown prefix', () => {
+    expect(parseButtonPayload('unknown:data')).toBeNull()
+  })
+
+  it('returns null for empty string', () => {
+    expect(parseButtonPayload('')).toBeNull()
+  })
+
+  it('returns null for count with invalid number', () => {
+    expect(parseButtonPayload('count:xyz:token')).toBeNull()
+  })
+
+  it('returns null for count without token', () => {
+    expect(parseButtonPayload('count:2:')).toBeNull()
+  })
+
+  it('token may contain colons (rsvp:yes:a:b → token=a:b)', () => {
+    const r = parseButtonPayload('rsvp:yes:a:b')
+    expect(r).toEqual({ action: 'rsvp_yes', token: 'a:b' })
+  })
+})
+
+// ── shouldUpdateMessageStatus (idempotency) ───────────────────────────────────
+
+describe('shouldUpdateMessageStatus', () => {
+  it('allows queued → sent', () => {
+    expect(shouldUpdateMessageStatus('queued', 'sent')).toBe(true)
+  })
+
+  it('allows sent → delivered', () => {
+    expect(shouldUpdateMessageStatus('sent', 'delivered')).toBe(true)
+  })
+
+  it('allows delivered → read', () => {
+    expect(shouldUpdateMessageStatus('delivered', 'read')).toBe(true)
+  })
+
+  it('prevents read → delivered (downgrade)', () => {
+    expect(shouldUpdateMessageStatus('read', 'delivered')).toBe(false)
+  })
+
+  it('prevents sent → sent (duplicate)', () => {
+    expect(shouldUpdateMessageStatus('sent', 'sent')).toBe(false)
+  })
+
+  it('allows any → failed (first time)', () => {
+    expect(shouldUpdateMessageStatus('queued', 'failed')).toBe(true)
+    expect(shouldUpdateMessageStatus('sent',   'failed')).toBe(true)
+  })
+
+  it('prevents failed → failed (already marked)', () => {
+    expect(shouldUpdateMessageStatus('failed', 'failed')).toBe(false)
+  })
+})
+
+// ── isOverDailyLimit ──────────────────────────────────────────────────────────
+
+describe('isOverDailyLimit', () => {
+  beforeEach(() => {
+    delete process.env.WHATSAPP_DAILY_LIMIT
+  })
+
+  it('returns false when under the default limit (250)', () => {
+    expect(isOverDailyLimit(249)).toBe(false)
+  })
+
+  it('returns true when at the default limit (250)', () => {
+    expect(isOverDailyLimit(250)).toBe(true)
+  })
+
+  it('returns false for 0 messages sent', () => {
+    expect(isOverDailyLimit(0)).toBe(false)
+  })
+
+  it('respects a custom WHATSAPP_DAILY_LIMIT env var', () => {
+    process.env.WHATSAPP_DAILY_LIMIT = '10'
+    expect(isOverDailyLimit(9)).toBe(false)
+    expect(isOverDailyLimit(10)).toBe(true)
+  })
+})

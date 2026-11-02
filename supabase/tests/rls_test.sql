@@ -105,6 +105,8 @@ begin
 
     insert into messages (campaign_id, guest_id, channel) values (c_A, g_A, 'whatsapp_link');
 
+    insert into webhook_events (payload) values ('{"object":"whatsapp_business_account"}'::jsonb);
+
     -- ---------- tests ----------
     -- Each test: name, expected result, actual result
 
@@ -249,6 +251,15 @@ begin
     exps := array_append(exps, ('ok:1')::text);
     acts := array_append(acts, (pg_temp.run_as(u_ownerA, format(
       'insert into storage.objects (bucket_id, name) values (''invitations'', %L)', e_A || '/rls-test.png')))::text);
+
+    -- webhook_events: service-role only (RLS enabled, no policies)
+    names := array_append(names, ('Authenticated user cannot read webhook_events')::text);
+    exps := array_append(exps, ('ok:0')::text);
+    acts := array_append(acts, (pg_temp.run_as(u_ownerA, 'select 1 from webhook_events'))::text);
+
+    names := array_append(names, ('Anonymous user cannot read webhook_events')::text);
+    exps := array_append(exps, ('ok:0')::text);
+    acts := array_append(acts, (pg_temp.run_as(null, 'select 1 from webhook_events'))::text);
 
     -- undo all fixtures and test writes
     raise exception 'rls_tests_rollback';

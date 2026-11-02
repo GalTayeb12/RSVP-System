@@ -59,28 +59,38 @@ export default async function GuestsPage({
     }
   }
 
-  // Fetch last sent message per guest
-  const lastSentMap = new Map<string, string>()
+  // Fetch last message per guest (for sent date + status icon)
+  type LastMsg = { sent_at: string | null; status: string; error: string | null; error_code: string | null }
+  const lastMsgMap = new Map<string, LastMsg>()
   if (guestIds.length > 0) {
     const { data: sentMessages } = await supabase
       .from('messages')
-      .select('guest_id, sent_at')
+      .select('guest_id, sent_at, status, error, error_code')
       .in('guest_id', guestIds)
-      .eq('status', 'sent')
-      .order('sent_at', { ascending: false })
+      .order('created_at', { ascending: false })
 
     for (const m of sentMessages ?? []) {
-      if (m.sent_at && !lastSentMap.has(m.guest_id)) {
-        lastSentMap.set(m.guest_id, m.sent_at)
+      if (!lastMsgMap.has(m.guest_id)) {
+        lastMsgMap.set(m.guest_id, {
+          sent_at:    m.sent_at,
+          status:     m.status,
+          error:      m.error,
+          error_code: m.error_code,
+        })
       }
     }
   }
 
-  const augmentedGuests = guestList.map((g) => ({
-    ...g,
-    lastHistory: lastHistoryMap.get(g.id) ?? null,
-    lastSent: lastSentMap.get(g.id) ?? null,
-  }))
+  const augmentedGuests = guestList.map((g) => {
+    const lm = lastMsgMap.get(g.id) ?? null
+    return {
+      ...g,
+      lastHistory: lastHistoryMap.get(g.id) ?? null,
+      lastSent:    lm?.sent_at ?? null,
+      lastMsgStatus:    (lm?.status ?? null) as 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | null,
+      lastMsgError:     lm?.error ?? null,
+    }
+  })
 
   const existingGroups = [
     ...new Set(

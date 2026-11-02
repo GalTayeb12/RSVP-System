@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { isLandline } from '@/lib/phone'
+import { isWhatsAppConfigured } from '@/lib/whatsapp'
 import LogoutButton from '@/components/LogoutButton'
 import SendPageClient from './SendPageClient'
 import type { CampaignKind } from '@/lib/campaign'
@@ -12,9 +13,11 @@ export type CampaignSummary = {
   id: string
   kind: CampaignKind
   audience: string
+  channel: 'whatsapp_link' | 'whatsapp_api' | 'sms'
   created_at: string
   total: number
-  sent: number
+  completed: number  // sent + delivered + read
+  failed: number
 }
 
 export type EventInfo = {
@@ -54,12 +57,12 @@ export default async function SendPage({
   // Campaign history with message counts
   const { data: campaigns } = await supabase
     .from('campaigns')
-    .select('id, kind, audience, created_at')
+    .select('id, kind, audience, channel, created_at')
     .eq('event_id', id)
     .order('created_at', { ascending: false })
 
   const campaignIds = (campaigns ?? []).map((c) => c.id)
-  const messageCounts: Record<string, { total: number; sent: number }> = {}
+  const messageCounts: Record<string, { total: number; completed: number; failed: number }> = {}
 
   if (campaignIds.length > 0) {
     const { data: msgs } = await supabase
@@ -69,9 +72,12 @@ export default async function SendPage({
 
     for (const m of msgs ?? []) {
       if (!messageCounts[m.campaign_id])
-        messageCounts[m.campaign_id] = { total: 0, sent: 0 }
+        messageCounts[m.campaign_id] = { total: 0, completed: 0, failed: 0 }
       messageCounts[m.campaign_id].total++
-      if (m.status === 'sent') messageCounts[m.campaign_id].sent++
+      if (['sent', 'delivered', 'read'].includes(m.status))
+        messageCounts[m.campaign_id].completed++
+      if (m.status === 'failed')
+        messageCounts[m.campaign_id].failed++
     }
   }
 
@@ -79,15 +85,17 @@ export default async function SendPage({
     id: c.id,
     kind: c.kind as CampaignKind,
     audience: c.audience,
+    channel: c.channel as 'whatsapp_link' | 'whatsapp_api' | 'sms',
     created_at: c.created_at,
     total: messageCounts[c.id]?.total ?? 0,
-    sent: messageCounts[c.id]?.sent ?? 0,
+    completed: messageCounts[c.id]?.completed ?? 0,
+    failed: messageCounts[c.id]?.failed ?? 0,
   }))
 
-  // Sample guest for live preview
+  // Sample guest for live preview + test button
   const { data: rawGuests } = await supabase
     .from('guests')
-    .select('first_name, phone, group_name')
+    .select('first_name, phone, group_name, rsvp_token')
     .eq('event_id', id)
     .eq('opted_out', false)
     .limit(20)
@@ -110,6 +118,8 @@ export default async function SendPage({
     event_date: event.event_date ?? null,
     venue_name: event.venue_name ?? '',
   }
+
+  const canAutoSend = isWhatsAppConfigured()
 
   return (
     <div className="min-h-screen bg-background">
@@ -134,7 +144,10 @@ export default async function SendPage({
           eventInfo={eventInfo}
           campaigns={campaignList}
           sampleGuestName={sampleGuest?.first_name ?? 'אורח/ת'}
+          sampleRsvpToken={sampleGuest?.rsvp_token ?? ''}
           groups={groups}
+          isAdmin={isAdmin}
+          canAutoSend={canAutoSend}
         />
       </main>
     </div>

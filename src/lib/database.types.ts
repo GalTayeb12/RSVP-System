@@ -281,7 +281,12 @@ export type Database = {
           text: string | null
           provider_id: string | null
           error: string | null
+          error_code: string | null
           sent_at: string | null
+          delivered_at: string | null
+          read_at: string | null
+          failed_at: string | null
+          locked_at: string | null
           created_at: string
           updated_at: string
         }
@@ -294,7 +299,12 @@ export type Database = {
           text?: string | null
           provider_id?: string | null
           error?: string | null
+          error_code?: string | null
           sent_at?: string | null
+          delivered_at?: string | null
+          read_at?: string | null
+          failed_at?: string | null
+          locked_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -307,7 +317,12 @@ export type Database = {
           text?: string | null
           provider_id?: string | null
           error?: string | null
+          error_code?: string | null
           sent_at?: string | null
+          delivered_at?: string | null
+          read_at?: string | null
+          failed_at?: string | null
+          locked_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -326,6 +341,31 @@ export type Database = {
           },
         ]
       }
+
+      webhook_events: {
+        Row: {
+          id: number
+          received_at: string
+          payload: Record<string, unknown>
+          processed: boolean
+          error: string | null
+        }
+        Insert: {
+          id?: number
+          received_at?: string
+          payload: Record<string, unknown>
+          processed?: boolean
+          error?: string | null
+        }
+        Update: {
+          id?: number
+          received_at?: string
+          payload?: Record<string, unknown>
+          processed?: boolean
+          error?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -342,6 +382,10 @@ export type Database = {
       can_manage_event: {
         Args: { e: string }
         Returns: boolean
+      }
+      claim_messages_batch: {
+        Args: { p_campaign_id: string; p_limit?: number }
+        Returns: Array<{ id: string; guest_id: string; msg_text: string | null }>
       }
     }
     Enums: {
