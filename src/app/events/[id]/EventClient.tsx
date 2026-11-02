@@ -4,6 +4,82 @@ import { useState, useTransition } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { updateEventImage, updateEventDeadline, updateEventDetails } from './actions'
 
+// ── Canvas image processing ───────────────────────────────────────────────────
+
+/** Resize the image so that the long edge is at most `maxDim` pixels. */
+function resizeCanvas(img: HTMLImageElement, maxDim: number): HTMLCanvasElement {
+  let { naturalWidth: w, naturalHeight: h } = img
+  if (w > maxDim || h > maxDim) {
+    const ratio = Math.min(maxDim / w, maxDim / h)
+    w = Math.round(w * ratio)
+    h = Math.round(h * ratio)
+  }
+  const c = document.createElement('canvas')
+  c.width = w
+  c.height = h
+  c.getContext('2d')!.drawImage(img, 0, 0, w, h)
+  return c
+}
+
+/** Center-crop the image to exactly `dstW × dstH`. */
+function cropCanvas(img: HTMLImageElement, dstW: number, dstH: number): HTMLCanvasElement {
+  const srcAspect = img.naturalWidth / img.naturalHeight
+  const dstAspect = dstW / dstH
+  let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight
+  if (srcAspect > dstAspect) {
+    sw = Math.round(img.naturalHeight * dstAspect)
+    sx = Math.round((img.naturalWidth - sw) / 2)
+  } else {
+    sh = Math.round(img.naturalWidth / dstAspect)
+    sy = Math.round((img.naturalHeight - sh) / 2)
+  }
+  const c = document.createElement('canvas')
+  c.width = dstW
+  c.height = dstH
+  c.getContext('2d')!.drawImage(img, sx, sy, sw, sh, 0, 0, dstW, dstH)
+  return c
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
+      'image/jpeg',
+      quality,
+    )
+  })
+}
+
+/**
+ * Process an image file for upload:
+ *  - `main`: resized to ≤1600px on the long edge, JPEG 85%
+ *  - `og`  : center-cropped to 1200×630, JPEG ≤300 KB
+ */
+async function processImageForUpload(
+  file: File,
+): Promise<{ main: Blob; og: Blob }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const objectUrl = URL.createObjectURL(file)
+    img.onload = async () => {
+      URL.revokeObjectURL(objectUrl)
+      try {
+        const mainBlob = await canvasToBlob(resizeCanvas(img, 1600), 0.85)
+        const ogCanvas = cropCanvas(img, 1200, 630)
+        let ogBlob = await canvasToBlob(ogCanvas, 0.8)
+        const maxBytes = 300 * 1024
+        if (ogBlob.size > maxBytes) ogBlob = await canvasToBlob(ogCanvas, 0.6)
+        if (ogBlob.size > maxBytes) ogBlob = await canvasToBlob(ogCanvas, 0.4)
+        resolve({ main: mainBlob, og: ogBlob })
+      } catch (e) {
+        reject(e)
+      }
+    }
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Image load failed')) }
+    img.src = objectUrl
+  })
+}
+
 type Props = {
   eventId: string
   currentImageUrl: string | null
@@ -85,39 +161,58 @@ export default function EventClient({
       setUploadError('יש לבחור קובץ תמונה בלבד')
       return
     }
-    if (file.size > 5 * 1024 * 1024) {
-      setUploadError('גודל התמונה לא יכול לעלות על 5MB')
+    if (file.size > 10 * 1024 * 1024) {
+      setUploadError('גודל התמונה לא יכול לעלות על 10MB')
       return
     }
     setUploading(true)
     setUploadError('')
-    const supabase = createClient()
-    const ext = file.name.split('.').pop() ?? 'jpg'
-    const path = `${eventId}/invitation.${ext}`
-    const { error: storageError, data } = await supabase.storage
-      .from('invitations')
-      .upload(path, file, { upsert: true })
-    if (storageError) {
-      setUploadError(`שגיאה בהעלאה: ${storageError.message}`)
-      setUploading(false)
-      return
-    }
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from('invitations').getPublicUrl(data.path)
-    const result = await updateEventImage(eventId, publicUrl)
-    if ('error' in result) setUploadError(result.error)
-    else setImageUrl(publicUrl)
-    setUploading(false)
     e.target.value = ''
+
+    const supabase = createClient()
+
+    try {
+      // Process: resize main + create OG crop
+      const { main: mainBlob, og: ogBlob } = await processImageForUpload(file)
+
+      // Upload main image
+      const mainPath = `${eventId}/invitation.jpg`
+      const { error: mainErr } = await supabase.storage
+        .from('invitations')
+        .upload(mainPath, mainBlob, { upsert: true, contentType: 'image/jpeg' })
+      if (mainErr) throw new Error(mainErr.message)
+
+      // Upload OG image (1200×630 crop)
+      const ogPath = `${eventId}/og.jpg`
+      await supabase.storage
+        .from('invitations')
+        .upload(ogPath, ogBlob, { upsert: true, contentType: 'image/jpeg' })
+
+      const { data: { publicUrl } } = supabase.storage.from('invitations').getPublicUrl(mainPath)
+      const result = await updateEventImage(eventId, publicUrl)
+      if ('error' in result) setUploadError(result.error)
+      else setImageUrl(publicUrl)
+    } catch {
+      setUploadError('שגיאה בעיבוד התמונה. נסה שנית.')
+    }
+
+    setUploading(false)
   }
 
   async function handleRemoveImage() {
     if (!imageUrl) return
     setUploading(true)
     const supabase = createClient()
-    const match = imageUrl.match(/\/invitations\/(.+)/)
-    if (match) await supabase.storage.from('invitations').remove([decodeURIComponent(match[1])])
+    // Remove both main and OG images (also try legacy extension)
+    const filesToRemove: string[] = [
+      `${eventId}/invitation.jpg`,
+      `${eventId}/og.jpg`,
+    ]
+    const extMatch = imageUrl.match(/\/invitation\.(\w+)(?:\?|$)/)
+    if (extMatch && extMatch[1] !== 'jpg') {
+      filesToRemove.push(`${eventId}/invitation.${extMatch[1]}`)
+    }
+    await supabase.storage.from('invitations').remove(filesToRemove)
     const result = await updateEventImage(eventId, null)
     if ('success' in result) setImageUrl(null)
     setUploading(false)

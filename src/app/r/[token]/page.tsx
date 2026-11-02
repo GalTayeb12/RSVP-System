@@ -5,6 +5,14 @@ import { DEFAULT_RSVP_SETTINGS, type RsvpSettings, type RsvpAnswers } from '@/li
 import { tokenSchema } from '@/lib/zod-schemas'
 import { coupleDisplayName } from '@/lib/couple-names'
 
+/** Derive the og.jpg URL from the main invitation image URL. */
+function deriveOgImageUrl(imageUrl: string | null): string | null {
+  if (!imageUrl) return null
+  const lastSlash = imageUrl.lastIndexOf('/')
+  if (lastSlash < 0) return null
+  return `${imageUrl.slice(0, lastSlash + 1)}og.jpg`
+}
+
 export const instant = false
 
 type Params = { token: string }
@@ -20,20 +28,47 @@ export async function generateMetadata({
 
   const { data } = await supabase
     .from('guests')
-    .select('events(title, invitation_image_url)')
+    .select(
+      'events(title, host_names, partner_a_name, partner_b_name, venue_name, event_date, invitation_image_url)',
+    )
     .eq('rsvp_token', token)
     .maybeSingle()
 
-  const event = data?.events as unknown as
-    | { title: string; invitation_image_url: string | null }
-    | null
-  if (!event) return { robots: 'noindex' }
+  type MetaEventShape = {
+    title: string
+    host_names: string | null
+    partner_a_name: string | null
+    partner_b_name: string | null
+    venue_name: string | null
+    event_date: string | null
+    invitation_image_url: string | null
+  }
+  const ev = data?.events as unknown as MetaEventShape | null
+  if (!ev) return { robots: 'noindex' }
+
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? ''
+  const names = coupleDisplayName(ev)
+  const description = names
+    ? `${names} מזמינים אתכם! לפרטים ואישור הגעה`
+    : 'הזמנה לאירוע — לפרטים ואישור הגעה'
+
+  const ogImageUrl = deriveOgImageUrl(ev.invitation_image_url)
+
+  const images = ogImageUrl
+    ? [{ url: ogImageUrl, width: 1200, height: 630, alt: ev.title }]
+    : ev.invitation_image_url
+    ? [{ url: ev.invitation_image_url, alt: ev.title }]
+    : []
 
   return {
     robots: 'noindex',
     openGraph: {
-      title: event.title,
-      images: event.invitation_image_url ? [event.invitation_image_url] : [],
+      type: 'website',
+      locale: 'he_IL',
+      url: siteUrl ? `${siteUrl}/r/${token}` : undefined,
+      title: ev.title,
+      description,
+      images,
     },
   }
 }
