@@ -43,7 +43,15 @@ export default async function EventPage({
         </div>
       </header>
 
-      <main className="mx-auto max-w-2xl p-4">
+      <main className="mx-auto max-w-2xl p-4 space-y-4">
+        <Link
+          href={`/events/${id}/guests`}
+          className="flex items-center justify-between rounded-2xl border border-accent/40 bg-card p-4 transition hover:border-accent"
+        >
+          <span className="font-medium">ניהול מוזמנים</span>
+          <span className="text-muted">←</span>
+        </Link>
+
         <div className="rounded-2xl border border-border bg-card p-6">
           <dl className="space-y-5">
             <Row label="מארחים" value={event.host_names} />
@@ -70,6 +78,7 @@ export default async function EventPage({
           </dl>
         </div>
       </main>
+
     </div>
   )
 }
