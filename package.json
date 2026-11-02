@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "create-admin": "tsx --env-file=.env.local scripts/create-admin.mts",
+    "whatsapp:templates": "tsx --env-file=.env.local scripts/whatsapp-templates.mts",
     "test": "vitest run"
   },
   "dependencies": {

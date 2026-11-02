@@ -9,7 +9,7 @@ import type { CampaignKind } from '@/lib/campaign'
 /**
  * While true, every campaign kind sends `hello_world` (Meta's pre-approved
  * test template, no params, no buttons). Switch to false once your Hebrew
- * templates are approved.
+ * templates are approved. hello_world must never be sent to real guests.
  */
 export const TEST_MODE = true
 
@@ -18,23 +18,29 @@ export const TEST_TEMPLATE = {
   lang: 'en_US',
 } as const
 
-/**
- * Production template definitions — only used when TEST_MODE = false.
- * Template body params order: {{1}} guestName, {{2}} hostNames,
- *   {{3}} eventDate, {{4}} venueName.
- * URL button suffix = rsvp_token.
- * Quick-reply index 1 = "מגיע/ה"  (payload rsvp:yes:<token>)
- * Quick-reply index 2 = "לא אוכל להגיע"  (payload rsvp:no:<token>)
- */
-export const TEMPLATE_MAP: Record<CampaignKind, { name: string; lang: string }> = {
-  invitation: { name: 'rsvp_invitation', lang: 'he' },
-  reminder:   { name: 'rsvp_reminder',   lang: 'he' },
-  event_day:  { name: 'rsvp_event_day',  lang: 'he' },
-  thank_you:  { name: 'rsvp_thank_you',  lang: 'he' },
-}
+export type TemplateCategory = 'MARKETING' | 'UTILITY'
 
 /**
- * Approximate WhatsApp marketing conversation cost (USD per message).
- * Update when Meta publishes new rates for your market.
+ * Production template definitions — only used when TEST_MODE = false.
+ *
+ * invitation  (MARKETING): body {{1}}=guestName {{2}}=hostNames {{3}}=eventDate {{4}}=venueName {{5}}=rsvpToken; IMAGE header; URL button
+ * reminder    (MARKETING): body {{1}}=guestName {{2}}=hostNames {{3}}=eventDate {{4}}=rsvpToken; URL button
+ * event_day   (UTILITY):   body {{1}}=guestName {{2}}=hostNames {{3}}=venueName; URL button
+ * thank_you   (MARKETING): body {{1}}=guestName {{2}}=hostNames; no button
  */
-export const RATE_USD_PER_MESSAGE = 0.05
+export const TEMPLATE_MAP: Record<
+  CampaignKind,
+  { name: string; lang: string; category: TemplateCategory }
+> = {
+  invitation: { name: 'rsvp_invitation', lang: 'he', category: 'MARKETING' },
+  reminder:   { name: 'rsvp_reminder',   lang: 'he', category: 'MARKETING' },
+  event_day:  { name: 'rsvp_event_day',  lang: 'he', category: 'UTILITY'   },
+  thank_you:  { name: 'rsvp_thank_you',  lang: 'he', category: 'MARKETING' },
+}
+
+/** Meta Israel WhatsApp conversation rates (effective 1 Oct 2026). */
+export const RATE_MARKETING_USD = 0.0353
+export const RATE_UTILITY_USD   = 0.0053
+
+/** ILS/USD exchange rate used for cost estimates. Update as needed. */
+export const ILS_EXCHANGE_RATE = 3.7

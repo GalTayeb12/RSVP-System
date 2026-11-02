@@ -3,6 +3,24 @@ import { createHmac, timingSafeEqual } from 'crypto'
 import type { CampaignKind } from '@/lib/campaign'
 import { TEST_MODE, TEST_TEMPLATE, TEMPLATE_MAP } from '@/lib/whatsapp-config'
 
+// ── Date formatting ───────────────────────────────────────────────────────────
+
+/**
+ * Formats an ISO date string as `DD.MM.YY בשעה HH:MM`.
+ * Example: "2026-11-05T19:30:00" → "05.11.26 בשעה 19:30"
+ */
+export function formatEventDate(isoDate: string | null): string {
+  if (!isoDate) return ''
+  const d = new Date(isoDate)
+  if (isNaN(d.getTime())) return ''
+  const dd  = String(d.getDate()).padStart(2, '0')
+  const mm  = String(d.getMonth() + 1).padStart(2, '0')
+  const yy  = String(d.getFullYear()).slice(2)
+  const hh  = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  return `${dd}.${mm}.${yy} בשעה ${hh}:${min}`
+}
+
 // ── Env helpers ───────────────────────────────────────────────────────────────
 
 export function isWhatsAppConfigured(): boolean {
@@ -79,40 +97,61 @@ export function buildTemplatePayload(args: BuildTemplateArgs): object {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const components: any[] = []
 
-  if (invitationImageUrl) {
+  // IMAGE header — only for invitation, only when an image URL is available
+  if (kind === 'invitation' && invitationImageUrl) {
     components.push({
       type: 'header',
       parameters: [{ type: 'image', image: { link: invitationImageUrl } }],
     })
   }
 
-  components.push({
-    type: 'body',
-    parameters: [
-      { type: 'text', text: guestName },
-      { type: 'text', text: hostNames },
-      { type: 'text', text: eventDate },
-      { type: 'text', text: venueName },
-    ],
-  })
-
-  // URL button — dynamic suffix is the rsvp_token
-  components.push({
-    type: 'button', sub_type: 'url', index: '0',
-    parameters: [{ type: 'text', text: rsvpToken }],
-  })
-
-  // Quick reply: attending
-  components.push({
-    type: 'button', sub_type: 'quick_reply', index: '1',
-    parameters: [{ type: 'payload', payload: `rsvp:yes:${rsvpToken}` }],
-  })
-
-  // Quick reply: not attending
-  components.push({
-    type: 'button', sub_type: 'quick_reply', index: '2',
-    parameters: [{ type: 'payload', payload: `rsvp:no:${rsvpToken}` }],
-  })
+  // Per-kind body parameters (no Quick Reply buttons in any template)
+  if (kind === 'invitation') {
+    // {{1}} guestName, {{2}} hostNames, {{3}} eventDate, {{4}} venueName, {{5}} rsvpToken
+    components.push({
+      type: 'body',
+      parameters: [
+        { type: 'text', text: guestName },
+        { type: 'text', text: hostNames },
+        { type: 'text', text: eventDate },
+        { type: 'text', text: venueName },
+        { type: 'text', text: rsvpToken },
+      ],
+    })
+    components.push({ type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: rsvpToken }] })
+  } else if (kind === 'reminder') {
+    // {{1}} guestName, {{2}} hostNames, {{3}} eventDate, {{4}} rsvpToken
+    components.push({
+      type: 'body',
+      parameters: [
+        { type: 'text', text: guestName },
+        { type: 'text', text: hostNames },
+        { type: 'text', text: eventDate },
+        { type: 'text', text: rsvpToken },
+      ],
+    })
+    components.push({ type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: rsvpToken }] })
+  } else if (kind === 'event_day') {
+    // {{1}} guestName, {{2}} hostNames, {{3}} venueName
+    components.push({
+      type: 'body',
+      parameters: [
+        { type: 'text', text: guestName },
+        { type: 'text', text: hostNames },
+        { type: 'text', text: venueName },
+      ],
+    })
+    components.push({ type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: rsvpToken }] })
+  } else {
+    // thank_you: {{1}} guestName, {{2}} hostNames — no button
+    components.push({
+      type: 'body',
+      parameters: [
+        { type: 'text', text: guestName },
+        { type: 'text', text: hostNames },
+      ],
+    })
+  }
 
   return {
     messaging_product: 'whatsapp',
@@ -289,6 +328,65 @@ async function callGraphApi(
   const providerId = msgs?.[0]?.id
   if (!providerId) return { error: 'No provider ID in response', permanent: false }
   return { providerId }
+}
+
+// ── Template status ───────────────────────────────────────────────────────────
+
+export type TemplateStatusEntry = {
+  status: string  // APPROVED | PENDING | REJECTED | PAUSED | DELETED
+  rejectedReason?: string | null
+}
+
+// Module-level cache — lives for 10 minutes per server process
+let _statusCache: { data: Record<string, TemplateStatusEntry>; expiresAt: number } | null = null
+
+/** Fetches template statuses from the Graph API with a 10-minute in-process cache. */
+export async function getTemplateStatuses(): Promise<Record<string, TemplateStatusEntry>> {
+  if (_statusCache && Date.now() < _statusCache.expiresAt) {
+    return _statusCache.data
+  }
+
+  const { accessToken, graphVersion } = cfg()
+  const wabaId = process.env.WHATSAPP_WABA_ID
+
+  if (!accessToken || !wabaId) return {}
+
+  try {
+    const url =
+      `https://graph.facebook.com/${graphVersion}/${wabaId}/message_templates` +
+      `?fields=name,status,rejected_reason&limit=100`
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+    })
+    if (!res.ok) return {}
+
+    const json = (await res.json()) as {
+      data?: Array<{ name: string; status: string; rejected_reason?: string }>
+    }
+    const data: Record<string, TemplateStatusEntry> = {}
+    for (const t of json.data ?? []) {
+      data[t.name] = { status: t.status, rejectedReason: t.rejected_reason ?? null }
+    }
+
+    _statusCache = { data, expiresAt: Date.now() + 10 * 60 * 1000 }
+    return data
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Returns true when the template for the given kind is APPROVED.
+ * Pure function — pass a statuses map (from getTemplateStatuses).
+ */
+export function isTemplateApproved(
+  kind: CampaignKind,
+  statuses: Record<string, TemplateStatusEntry>,
+): boolean {
+  const name = TEMPLATE_MAP[kind]?.name
+  if (!name) return false
+  return statuses[name]?.status === 'APPROVED'
 }
 
 // ── Public send functions ─────────────────────────────────────────────────────

@@ -3,8 +3,13 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { KIND_LABEL } from '@/lib/campaign'
-import { RATE_USD_PER_MESSAGE } from '@/lib/whatsapp-config'
-import type { CampaignSummary, EventInfo } from './page'
+import {
+  TEMPLATE_MAP,
+  RATE_MARKETING_USD,
+  RATE_UTILITY_USD,
+  ILS_EXCHANGE_RATE,
+} from '@/lib/whatsapp-config'
+import type { CampaignSummary, EventInfo, TemplateStatusEntry } from './page'
 import CampaignCreator from './CampaignCreator'
 import SendQueue from './SendQueue'
 import { sendTestButtonAction, getCampaignMessagesAction, type MessageDetail } from './actions'
@@ -20,13 +25,15 @@ type Props = {
   isAdmin: boolean
   canAutoSend: boolean
   isDryRun: boolean
+  isTestMode: boolean
+  templateStatuses: Record<string, TemplateStatusEntry>
 }
 
 type View =
   | { name: 'history' }
   | { name: 'create' }
   | { name: 'queue'; campaignId: string; total: number }
-  | { name: 'auto-confirm'; campaignId: string; total: number }
+  | { name: 'auto-confirm'; campaignId: string; total: number; kind: CampaignKind }
   | { name: 'auto-run'; campaignId: string; total: number }
 
 function formatDate(iso: string) {
@@ -183,6 +190,8 @@ export default function SendPageClient({
   isAdmin,
   canAutoSend,
   isDryRun,
+  isTestMode,
+  templateStatuses,
 }: Props) {
   const router = useRouter()
   const [view, setView] = useState<View>({ name: 'history' })
@@ -198,9 +207,11 @@ export default function SendPageClient({
           sampleGuestName={sampleGuestName}
           groups={groups}
           canAutoSend={canAutoSend}
-          onCreated={(campaignId, total, channel) => {
+          isTestMode={isTestMode}
+          templateStatuses={templateStatuses}
+          onCreated={(campaignId, total, channel, kind) => {
             if (channel === 'whatsapp_api') {
-              setView({ name: 'auto-confirm', campaignId, total })
+              setView({ name: 'auto-confirm', campaignId, total, kind })
             } else {
               setView({ name: 'queue', campaignId, total })
             }
@@ -223,7 +234,11 @@ export default function SendPageClient({
   }
 
   if (view.name === 'auto-confirm') {
-    const estimatedCost = (view.total * RATE_USD_PER_MESSAGE).toFixed(2)
+    const category   = TEMPLATE_MAP[view.kind]?.category ?? 'MARKETING'
+    const rateUsd    = category === 'UTILITY' ? RATE_UTILITY_USD : RATE_MARKETING_USD
+    const totalUsd   = (view.total * rateUsd).toFixed(2)
+    const totalIls   = Math.round(view.total * rateUsd * ILS_EXCHANGE_RATE)
+    const categoryHe = category === 'UTILITY' ? 'שירות' : 'שיווק'
     return (
       <div className="space-y-5">
         {isDryRun && <DryRunBanner />}
@@ -234,10 +249,10 @@ export default function SendPageClient({
           </p>
           <p className="text-sm">
             <span className="font-semibold">עלות משוערת:</span>{' '}
-            ~${estimatedCost} USD ({view.total} × ${RATE_USD_PER_MESSAGE})
+            {view.total} הודעות ≈ ${totalUsd} (≈ ₪{totalIls})
           </p>
           <p className="text-xs text-muted">
-            המחיר מבוסס על תעריף שיחת שיווק של Meta. המחיר הסופי עשוי להשתנות.
+            תעריף שיחת {categoryHe} של Meta: ${rateUsd} להודעה. המחיר הסופי עשוי להשתנות.
           </p>
         </div>
         <div className="flex gap-3">
@@ -284,8 +299,8 @@ export default function SendPageClient({
         + צור סבב שליחה חדש
       </button>
 
-      {/* Admin test button */}
-      {isAdmin && canAutoSend && (
+      {/* Admin test button — only visible in TEST_MODE */}
+      {isAdmin && canAutoSend && isTestMode && (
         <TestButtonPanel eventId={eventId} sampleRsvpToken={sampleRsvpToken} />
       )}
 

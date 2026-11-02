@@ -10,12 +10,14 @@ vi.mock('@/lib/whatsapp-config', () => ({
   TEST_MODE: false,          // production mode by default in tests
   TEST_TEMPLATE: { name: 'hello_world', lang: 'en_US' },
   TEMPLATE_MAP: {
-    invitation: { name: 'rsvp_invitation', lang: 'he' },
-    reminder:   { name: 'rsvp_reminder',   lang: 'he' },
-    event_day:  { name: 'rsvp_event_day',  lang: 'he' },
-    thank_you:  { name: 'rsvp_thank_you',  lang: 'he' },
+    invitation: { name: 'rsvp_invitation', lang: 'he', category: 'MARKETING' },
+    reminder:   { name: 'rsvp_reminder',   lang: 'he', category: 'MARKETING' },
+    event_day:  { name: 'rsvp_event_day',  lang: 'he', category: 'UTILITY'   },
+    thank_you:  { name: 'rsvp_thank_you',  lang: 'he', category: 'MARKETING' },
   },
-  RATE_USD_PER_MESSAGE: 0.05,
+  RATE_MARKETING_USD: 0.0353,
+  RATE_UTILITY_USD:   0.0053,
+  ILS_EXCHANGE_RATE:  3.7,
 }))
 
 import {
@@ -26,22 +28,25 @@ import {
   isOverDailyLimit,
   isDryRunEnabled,
   maskPhone,
+  formatEventDate,
+  isTemplateApproved,
   type BuildTemplateArgs,
+  type TemplateStatusEntry,
 } from '../whatsapp'
 
 // ── buildTemplatePayload ──────────────────────────────────────────────────────
 
 const baseArgs: BuildTemplateArgs = {
-  phone:    '+972501234567',
-  kind:     'invitation',
-  guestName:    'דוד',
-  hostNames:    'יוסי ומיה',
-  eventDate:    'ה׳ בניסן תשפ״ה',
-  venueName:    'אולם הורד',
-  rsvpToken:    'abc1234500000000',
+  phone:     '+972501234567',
+  kind:      'invitation',
+  guestName: 'דוד',
+  hostNames: 'יוסי ומיה',
+  eventDate: '05.11.26 בשעה 19:30',
+  venueName: 'אולם הורד',
+  rsvpToken: 'abc1234500000000',
 }
 
-describe('buildTemplatePayload — production mode', () => {
+describe('buildTemplatePayload — invitation (production mode)', () => {
   it('builds correct template name and language', () => {
     const p = buildTemplatePayload(baseArgs) as Record<string, unknown>
     const tpl = p.template as { name: string; language: { code: string } }
@@ -54,28 +59,18 @@ describe('buildTemplatePayload — production mode', () => {
     expect(p.to).toBe('972501234567')
   })
 
-  it('includes body params in correct order', () => {
+  it('includes 5 body params in correct order', () => {
     const p = buildTemplatePayload(baseArgs) as { template: { components: unknown[] } }
     const body = (p.template.components as Array<{ type: string; parameters?: unknown[] }>)
       .find((c) => c.type === 'body')
     expect(body).toBeDefined()
     const params = body!.parameters as Array<{ text: string }>
-    expect(params[0].text).toBe('דוד')
-    expect(params[1].text).toBe('יוסי ומיה')
-    expect(params[2].text).toBe('ה׳ בניסן תשפ״ה')
-    expect(params[3].text).toBe('אולם הורד')
-  })
-
-  it('encodes rsvp:yes and rsvp:no payloads with token', () => {
-    const p = buildTemplatePayload(baseArgs) as { template: { components: unknown[] } }
-    const components = p.template.components as Array<{
-      type: string; sub_type?: string; index?: string
-      parameters?: Array<{ payload?: string; text?: string }>
-    }>
-    const yes = components.find((c) => c.sub_type === 'quick_reply' && c.index === '1')
-    const no  = components.find((c) => c.sub_type === 'quick_reply' && c.index === '2')
-    expect(yes?.parameters?.[0].payload).toBe('rsvp:yes:abc1234500000000')
-    expect(no?.parameters?.[0].payload).toBe('rsvp:no:abc1234500000000')
+    expect(params).toHaveLength(5)
+    expect(params[0].text).toBe('דוד')           // {{1}} guestName
+    expect(params[1].text).toBe('יוסי ומיה')    // {{2}} hostNames
+    expect(params[2].text).toBe('05.11.26 בשעה 19:30') // {{3}} eventDate
+    expect(params[3].text).toBe('אולם הורד')    // {{4}} venueName
+    expect(params[4].text).toBe('abc1234500000000')     // {{5}} rsvpToken
   })
 
   it('URL button suffix is the rsvp_token', () => {
@@ -86,6 +81,13 @@ describe('buildTemplatePayload — production mode', () => {
     }>
     const urlBtn = components.find((c) => c.sub_type === 'url' && c.index === '0')
     expect(urlBtn?.parameters?.[0].text).toBe('abc1234500000000')
+  })
+
+  it('has no quick-reply buttons', () => {
+    const p = buildTemplatePayload(baseArgs) as { template: { components: unknown[] } }
+    const components = p.template.components as Array<{ sub_type?: string }>
+    const qr = components.filter((c) => c.sub_type === 'quick_reply')
+    expect(qr).toHaveLength(0)
   })
 
   it('includes header when invitationImageUrl is provided', () => {
@@ -102,6 +104,129 @@ describe('buildTemplatePayload — production mode', () => {
     }
     const header = p.template.components.find((c) => c.type === 'header')
     expect(header).toBeUndefined()
+  })
+})
+
+describe('buildTemplatePayload — reminder', () => {
+  const args: BuildTemplateArgs = { ...baseArgs, kind: 'reminder' }
+
+  it('has 4 body params', () => {
+    const p = buildTemplatePayload(args) as { template: { components: unknown[] } }
+    const body = (p.template.components as Array<{ type: string; parameters?: unknown[] }>)
+      .find((c) => c.type === 'body')
+    const params = body!.parameters as Array<{ text: string }>
+    expect(params).toHaveLength(4)
+    expect(params[0].text).toBe('דוד')                  // guestName
+    expect(params[1].text).toBe('יוסי ומיה')           // hostNames
+    expect(params[2].text).toBe('05.11.26 בשעה 19:30') // eventDate
+    expect(params[3].text).toBe('abc1234500000000')      // rsvpToken
+  })
+
+  it('has a URL button', () => {
+    const p = buildTemplatePayload(args) as { template: { components: unknown[] } }
+    const components = p.template.components as Array<{ sub_type?: string }>
+    expect(components.find((c) => c.sub_type === 'url')).toBeDefined()
+  })
+
+  it('omits header even when invitationImageUrl is provided', () => {
+    const p = buildTemplatePayload({ ...args, invitationImageUrl: 'https://example.com/img.jpg' }) as {
+      template: { components: Array<{ type: string }> }
+    }
+    expect(p.template.components.find((c) => c.type === 'header')).toBeUndefined()
+  })
+})
+
+describe('buildTemplatePayload — event_day', () => {
+  const args: BuildTemplateArgs = { ...baseArgs, kind: 'event_day' }
+
+  it('has 3 body params (no eventDate, venueName instead)', () => {
+    const p = buildTemplatePayload(args) as { template: { components: unknown[] } }
+    const body = (p.template.components as Array<{ type: string; parameters?: unknown[] }>)
+      .find((c) => c.type === 'body')
+    const params = body!.parameters as Array<{ text: string }>
+    expect(params).toHaveLength(3)
+    expect(params[0].text).toBe('דוד')          // guestName
+    expect(params[1].text).toBe('יוסי ומיה')   // hostNames
+    expect(params[2].text).toBe('אולם הורד')   // venueName
+  })
+
+  it('has a URL button', () => {
+    const p = buildTemplatePayload(args) as { template: { components: unknown[] } }
+    const components = p.template.components as Array<{ sub_type?: string }>
+    expect(components.find((c) => c.sub_type === 'url')).toBeDefined()
+  })
+})
+
+describe('buildTemplatePayload — thank_you', () => {
+  const args: BuildTemplateArgs = { ...baseArgs, kind: 'thank_you' }
+
+  it('has 2 body params', () => {
+    const p = buildTemplatePayload(args) as { template: { components: unknown[] } }
+    const body = (p.template.components as Array<{ type: string; parameters?: unknown[] }>)
+      .find((c) => c.type === 'body')
+    const params = body!.parameters as Array<{ text: string }>
+    expect(params).toHaveLength(2)
+    expect(params[0].text).toBe('דוד')
+    expect(params[1].text).toBe('יוסי ומיה')
+  })
+
+  it('has no URL button', () => {
+    const p = buildTemplatePayload(args) as { template: { components: unknown[] } }
+    const components = p.template.components as Array<{ sub_type?: string }>
+    expect(components.find((c) => c.sub_type === 'url')).toBeUndefined()
+  })
+
+  it('has no header', () => {
+    const p = buildTemplatePayload({ ...args, invitationImageUrl: 'https://example.com/img.jpg' }) as {
+      template: { components: Array<{ type: string }> }
+    }
+    expect(p.template.components.find((c) => c.type === 'header')).toBeUndefined()
+  })
+})
+
+// ── formatEventDate ───────────────────────────────────────────────────────────
+
+describe('formatEventDate', () => {
+  it('returns empty string for null', () => {
+    expect(formatEventDate(null)).toBe('')
+  })
+
+  it('returns empty string for an invalid date string', () => {
+    expect(formatEventDate('not-a-date')).toBe('')
+  })
+
+  it('formats a date to DD.MM.YY בשעה HH:MM pattern', () => {
+    // Use noon UTC to avoid date-boundary ambiguity across timezones
+    const result = formatEventDate('2026-11-05T12:00:00.000Z')
+    expect(result).toMatch(/^\d{2}\.\d{2}\.\d{2} בשעה \d{2}:\d{2}$/)
+    // Month and year digits are stable regardless of timezone
+    expect(result).toContain('.11.26')
+  })
+})
+
+// ── isTemplateApproved ────────────────────────────────────────────────────────
+
+describe('isTemplateApproved', () => {
+  const statuses: Record<string, TemplateStatusEntry> = {
+    rsvp_invitation: { status: 'APPROVED' },
+    rsvp_reminder:   { status: 'PENDING'  },
+    rsvp_event_day:  { status: 'REJECTED', rejectedReason: 'Content policy' },
+  }
+
+  it('returns true for an APPROVED template', () => {
+    expect(isTemplateApproved('invitation', statuses)).toBe(true)
+  })
+
+  it('returns false for a PENDING template', () => {
+    expect(isTemplateApproved('reminder', statuses)).toBe(false)
+  })
+
+  it('returns false for a REJECTED template', () => {
+    expect(isTemplateApproved('event_day', statuses)).toBe(false)
+  })
+
+  it('returns false when the template is not found in statuses', () => {
+    expect(isTemplateApproved('thank_you', statuses)).toBe(false)
   })
 })
 

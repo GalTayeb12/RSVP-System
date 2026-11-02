@@ -5,6 +5,9 @@ import LogoutButton from '@/components/LogoutButton'
 import UserForm from './UserForm'
 import EventForm from './EventForm'
 import { coupleDisplayName } from '@/lib/couple-names'
+import { isWhatsAppConfigured, getTemplateStatuses } from '@/lib/whatsapp'
+import { TEMPLATE_MAP } from '@/lib/whatsapp-config'
+import type { CampaignKind } from '@/lib/campaign'
 
 // Auth-protected page — always rendered at request time, never prerendered
 export const instant = false
@@ -34,6 +37,9 @@ export default async function AdminPage() {
     .order('event_date')
 
   const owners = (profiles ?? []).filter((p) => p.role === 'owner')
+
+  const waConfigured = isWhatsAppConfigured()
+  const templateStatuses = waConfigured ? await getTemplateStatuses() : {}
 
   return (
     <div className="min-h-screen bg-background">
@@ -159,6 +165,57 @@ export default async function AdminPage() {
           )}
 
           <EventForm owners={owners} />
+        </section>
+
+        {/* ── WhatsApp Templates ── */}
+        <section>
+          <h2 className="mb-4 text-base font-semibold">תבניות וואטסאפ</h2>
+
+          {!waConfigured ? (
+            <p className="text-sm text-muted">
+              WhatsApp לא מוגדר. הוסף WHATSAPP_ACCESS_TOKEN ו-WHATSAPP_PHONE_NUMBER_ID כדי לאפשר שליחה אוטומטית.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border border-border">
+              <table className="w-full text-sm">
+                <thead className="bg-background text-muted">
+                  <tr>
+                    <th className="px-4 py-3 text-right font-medium">תבנית</th>
+                    <th className="px-4 py-3 text-right font-medium">קטגוריה</th>
+                    <th className="px-4 py-3 text-right font-medium">סטטוס</th>
+                    <th className="px-4 py-3 text-right font-medium">סיבת דחייה</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border bg-card">
+                  {(Object.entries(TEMPLATE_MAP) as [CampaignKind, typeof TEMPLATE_MAP[CampaignKind]][]).map(
+                    ([, tpl]) => {
+                      const entry = templateStatuses[tpl.name]
+                      const status = entry?.status ?? '—'
+                      const statusColor =
+                        status === 'APPROVED' ? 'bg-green-100 text-green-700'
+                        : status === 'PENDING'  ? 'bg-amber-100 text-amber-700'
+                        : status === 'REJECTED' ? 'bg-red-100 text-red-700'
+                        : 'bg-background text-muted'
+                      return (
+                        <tr key={tpl.name}>
+                          <td className="px-4 py-3 font-mono text-xs">{tpl.name}</td>
+                          <td className="px-4 py-3 text-muted">{tpl.category}</td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${statusColor}`}>
+                              {status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-muted">
+                            {entry?.rejectedReason ?? '—'}
+                          </td>
+                        </tr>
+                      )
+                    },
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
       </main>
     </div>

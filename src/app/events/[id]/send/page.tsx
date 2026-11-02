@@ -2,7 +2,8 @@ import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { isLandline } from '@/lib/phone'
-import { isWhatsAppConfigured } from '@/lib/whatsapp'
+import { isWhatsAppConfigured, getTemplateStatuses, type TemplateStatusEntry } from '@/lib/whatsapp'
+import { TEST_MODE } from '@/lib/whatsapp-config'
 import LogoutButton from '@/components/LogoutButton'
 import SendPageClient from './SendPageClient'
 import type { CampaignKind } from '@/lib/campaign'
@@ -27,7 +28,10 @@ export type EventInfo = {
   host_names: string
   event_date: string | null
   venue_name: string
+  invitation_image_url: string | null
 }
+
+export type { TemplateStatusEntry }
 
 export default async function SendPage({
   params,
@@ -45,7 +49,7 @@ export default async function SendPage({
   const [{ data: event }, { data: profile }] = await Promise.all([
     supabase
       .from('events')
-      .select('id, title, host_names, partner_a_name, partner_b_name, event_date, venue_name, owner_id')
+      .select('id, title, host_names, partner_a_name, partner_b_name, event_date, venue_name, invitation_image_url, owner_id')
       .eq('id', id)
       .single(),
     supabase.from('profiles').select('role').eq('id', user.id).single(),
@@ -120,13 +124,18 @@ export default async function SendPage({
   ].sort()
 
   const eventInfo: EventInfo = {
-    host_names: coupleDisplayName(event),
-    event_date: event.event_date ?? null,
-    venue_name: event.venue_name ?? '',
+    host_names:           coupleDisplayName(event),
+    event_date:           event.event_date ?? null,
+    venue_name:           event.venue_name ?? '',
+    invitation_image_url: event.invitation_image_url ?? null,
   }
 
   const canAutoSend = isWhatsAppConfigured()
-  const isDryRun = process.env.WHATSAPP_DRY_RUN === 'true'
+  const isDryRun    = process.env.WHATSAPP_DRY_RUN === 'true'
+  const isTestMode  = TEST_MODE
+
+  const templateStatuses: Record<string, TemplateStatusEntry> =
+    canAutoSend && !TEST_MODE ? await getTemplateStatuses() : {}
 
   return (
     <div className="min-h-screen bg-background">
@@ -163,6 +172,8 @@ export default async function SendPage({
           isAdmin={isAdmin}
           canAutoSend={canAutoSend}
           isDryRun={isDryRun}
+          isTestMode={isTestMode}
+          templateStatuses={templateStatuses}
         />
       </main>
     </div>

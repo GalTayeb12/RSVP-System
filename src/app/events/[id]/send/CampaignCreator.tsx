@@ -9,8 +9,9 @@ import {
   fillTemplate,
   type CampaignKind,
 } from '@/lib/campaign'
+import { TEMPLATE_MAP } from '@/lib/whatsapp-config'
 import { createCampaignAction } from './actions'
-import type { EventInfo } from './page'
+import type { EventInfo, TemplateStatusEntry } from './page'
 
 type Props = {
   eventId: string
@@ -18,7 +19,9 @@ type Props = {
   sampleGuestName: string
   groups: string[]
   canAutoSend: boolean
-  onCreated: (campaignId: string, total: number, channel: 'whatsapp_link' | 'whatsapp_api') => void
+  isTestMode: boolean
+  templateStatuses: Record<string, TemplateStatusEntry>
+  onCreated: (campaignId: string, total: number, channel: 'whatsapp_link' | 'whatsapp_api', kind: CampaignKind) => void
   onCancel: () => void
 }
 
@@ -42,12 +45,120 @@ function formatEventDate(
   return new Date(eventDate).toLocaleDateString(locale, options)
 }
 
+/** Returns true when choosing whatsapp_api is currently blocked. */
+function isApiBlocked(
+  kind: CampaignKind,
+  channel: 'whatsapp_link' | 'whatsapp_api',
+  isTestMode: boolean,
+  templateStatuses: Record<string, TemplateStatusEntry>,
+  invitationImageUrl: string | null,
+): boolean {
+  if (channel !== 'whatsapp_api') return false
+  if (isTestMode) return true
+  if (kind === 'invitation' && !invitationImageUrl) return true
+  const tplName = TEMPLATE_MAP[kind]?.name
+  if (!tplName) return true
+  return templateStatuses[tplName]?.status !== 'APPROVED'
+}
+
+const TEMPLATE_STATUS_COLOR: Record<string, string> = {
+  APPROVED: 'bg-green-100 text-green-700',
+  PENDING:  'bg-amber-100 text-amber-700',
+  REJECTED: 'bg-red-100 text-red-700',
+  PAUSED:   'bg-orange-100 text-orange-700',
+}
+
+function AutoSendBlock({
+  kind,
+  channel,
+  isTestMode,
+  templateStatuses,
+  invitationImageUrl,
+  onChannelChange,
+}: {
+  kind: CampaignKind
+  channel: 'whatsapp_link' | 'whatsapp_api'
+  isTestMode: boolean
+  templateStatuses: Record<string, TemplateStatusEntry>
+  invitationImageUrl: string | null
+  onChannelChange: (c: 'whatsapp_link' | 'whatsapp_api') => void
+}) {
+  const tplName     = TEMPLATE_MAP[kind]?.name
+  const tplEntry    = tplName ? templateStatuses[tplName] : null
+  const tplStatus   = tplEntry?.status
+  const noImage     = kind === 'invitation' && !invitationImageUrl
+  const apiDisabled = isApiBlocked(kind, 'whatsapp_api', isTestMode, templateStatuses, invitationImageUrl)
+
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => onChannelChange('whatsapp_link')}
+          className={`rounded-xl border p-3 text-right transition ${
+            channel === 'whatsapp_link'
+              ? 'border-accent bg-accent/10 text-accent'
+              : 'border-border hover:bg-background'
+          }`}
+        >
+          <p className="text-sm font-medium">שליחה ידנית</p>
+          <p className="mt-0.5 text-xs text-muted">פותח וואטסאפ בלחיצה לכל מוזמן</p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => !apiDisabled && onChannelChange('whatsapp_api')}
+          disabled={apiDisabled}
+          className={`rounded-xl border p-3 text-right transition ${
+            channel === 'whatsapp_api'
+              ? 'border-accent bg-accent/10 text-accent'
+              : apiDisabled
+              ? 'border-border opacity-50 cursor-not-allowed'
+              : 'border-border hover:bg-background'
+          }`}
+        >
+          <p className="text-sm font-medium">שליחה אוטומטית</p>
+          <div className="mt-0.5 flex items-center gap-1.5 flex-wrap">
+            <p className="text-xs text-muted">Meta Cloud API</p>
+            {tplStatus && (
+              <span className={`rounded-full px-1.5 py-0.5 text-xs font-medium ${TEMPLATE_STATUS_COLOR[tplStatus] ?? 'bg-background text-muted'}`}>
+                {tplStatus}
+              </span>
+            )}
+          </div>
+        </button>
+      </div>
+
+      {/* Contextual warnings */}
+      {isTestMode && (
+        <p className="text-xs text-amber-700">
+          מצב בדיקה פעיל — שליחה אוטומטית חסומה. כבה TEST_MODE כדי לשלוח לאורחים.
+        </p>
+      )}
+      {!isTestMode && noImage && (
+        <p className="text-xs text-red-600">
+          שליחה אוטומטית של הזמנה דורשת תמונת הזמנה. עלי להעלות תמונה בהגדרות האירוע.
+        </p>
+      )}
+      {!isTestMode && !noImage && tplStatus && tplStatus !== 'APPROVED' && (
+        <p className="text-xs text-amber-700">
+          התבנית &quot;{tplName}&quot; במצב {tplStatus}
+          {tplEntry?.rejectedReason ? ` — ${tplEntry.rejectedReason}` : ''}
+          . שליחה אוטומטית זמינה לאחר אישור Meta.
+        </p>
+      )}
+    </div>
+  )
+}
+
 export default function CampaignCreator({
   eventId,
   eventInfo,
   sampleGuestName,
   groups,
   canAutoSend,
+  isTestMode,
+  templateStatuses,
   onCreated,
   onCancel,
 }: Props) {
@@ -111,7 +222,7 @@ export default function CampaignCreator({
       if ('error' in result) {
         setError(result.error)
       } else {
-        onCreated(result.campaignId, result.messageCount, channel)
+        onCreated(result.campaignId, result.messageCount, channel, kind)
       }
     })
   }
@@ -204,37 +315,23 @@ export default function CampaignCreator({
       {canAutoSend && (
         <div>
           <label className="mb-2 block text-sm font-medium">שיטת שליחה</label>
-          <div className="grid grid-cols-2 gap-2">
-            {(
-              [
-                { value: 'whatsapp_link', label: 'שליחה ידנית', desc: 'פותח וואטסאפ בלחיצה לכל מוזמן' },
-                { value: 'whatsapp_api',  label: 'שליחה אוטומטית', desc: 'Meta Cloud API — עלות ~$0.05 להודעה' },
-              ] as const
-            ).map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setChannel(opt.value)}
-                className={`rounded-xl border p-3 text-right transition ${
-                  channel === opt.value
-                    ? 'border-accent bg-accent/10 text-accent'
-                    : 'border-border hover:bg-background'
-                }`}
-              >
-                <p className="text-sm font-medium">{opt.label}</p>
-                <p className="mt-0.5 text-xs text-muted">{opt.desc}</p>
-              </button>
-            ))}
-          </div>
+          <AutoSendBlock
+            kind={kind}
+            channel={channel}
+            isTestMode={isTestMode}
+            templateStatuses={templateStatuses}
+            invitationImageUrl={eventInfo.invitation_image_url ?? null}
+            onChannelChange={setChannel}
+          />
         </div>
       )}
 
-      {/* For API channel: hide template editor, show note */}
+      {/* For API channel: show template name note */}
       {channel === 'whatsapp_api' && (
         <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-          תוכן ההודעה נקבע לפי תבנית Meta מאושרת ({
-            process.env.NODE_ENV === 'development' ? 'כרגע: hello_world (מצב בדיקה)' : 'תבנית מאושרת'
-          }). אין צורך לערוך טקסט.
+          {isTestMode
+            ? 'מצב בדיקה פעיל — נשלחת תבנית hello_world. אי אפשר לשלוח לאורחים אמיתיים.'
+            : `תוכן ההודעה נקבע לפי תבנית Meta מאושרת (${TEMPLATE_MAP[kind]?.name}). אין צורך לערוך טקסט.`}
         </div>
       )}
 
@@ -246,7 +343,7 @@ export default function CampaignCreator({
 
       <button
         onClick={handleSubmit}
-        disabled={isPending || (channel === 'whatsapp_link' && !template.trim())}
+        disabled={isPending || (channel === 'whatsapp_link' && !template.trim()) || isApiBlocked(kind, channel, isTestMode, templateStatuses, eventInfo.invitation_image_url ?? null)}
         className="w-full rounded-2xl bg-foreground py-4 text-center font-bold text-background transition hover:opacity-90 disabled:opacity-50"
       >
         {isPending ? 'יוצר...' : 'צור סבב שליחה'}

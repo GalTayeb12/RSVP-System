@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendWhatsAppTemplate, isOverDailyLimit, maskPhone } from '@/lib/whatsapp'
+import {
+  sendWhatsAppTemplate,
+  isOverDailyLimit,
+  maskPhone,
+  formatEventDate,
+  getTemplateStatuses,
+  isTemplateApproved,
+} from '@/lib/whatsapp'
+import { TEST_MODE, TEMPLATE_MAP } from '@/lib/whatsapp-config'
 import { coupleDisplayName } from '@/lib/couple-names'
 
 const BATCH_SIZE = 20
@@ -73,6 +81,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ sent: 0, failed: 0, remaining: remaining ?? 0, done: (remaining ?? 0) === 0 })
   }
 
+  // ── Fetch campaign kind and check template approval ──────────────────────
+  const { data: campaignData } = await admin
+    .from('campaigns')
+    .select('kind')
+    .eq('id', campaignId)
+    .single()
+  const kind = (campaignData?.kind ?? 'invitation') as 'invitation' | 'reminder' | 'event_day' | 'thank_you'
+
+  if (!TEST_MODE) {
+    const statuses = await getTemplateStatuses()
+    if (!isTemplateApproved(kind, statuses)) {
+      const tplName = TEMPLATE_MAP[kind]?.name ?? kind
+      return NextResponse.json({
+        error: `התבנית "${tplName}" אינה מאושרת. לא ניתן לשלוח עד לאישור Meta.`,
+      }, { status: 400 })
+    }
+  }
+
   // ── Fetch guest data for this batch ──────────────────────────────────────
   const guestIds = batch.map((b) => b.guest_id)
   const { data: guests } = await admin
@@ -82,14 +108,7 @@ export async function POST(request: NextRequest) {
 
   const guestMap = new Map((guests ?? []).map((g) => [g.id, g]))
 
-  // Shared event variables
-  const eventDate = event.event_date ? new Date(event.event_date) : null
-  const formattedDate = eventDate
-    ? eventDate.toLocaleDateString('he-IL', { year: 'numeric', month: 'long', day: 'numeric' })
-    : ''
-  const origin = process.env.NODE_ENV === 'production'
-    ? `https://${process.env.VERCEL_URL ?? 'localhost'}`
-    : 'http://localhost:3001'
+  const formattedDate = formatEventDate(event.event_date ?? null)
 
   // ── Send each message ─────────────────────────────────────────────────────
   let sentCount = 0
@@ -108,12 +127,9 @@ export async function POST(request: NextRequest) {
       continue
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const kind = (await admin.from('campaigns').select('kind').eq('id', campaignId).single()).data?.kind ?? 'invitation'
-
     const result = await sendWhatsAppTemplate({
       phone:              guest.phone,
-      kind:               kind as 'invitation' | 'reminder' | 'event_day' | 'thank_you',
+      kind,
       guestName:          guest.first_name,
       hostNames:          coupleDisplayName(event),
       eventDate:          formattedDate,
