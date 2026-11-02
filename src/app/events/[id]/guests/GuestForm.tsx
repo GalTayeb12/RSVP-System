@@ -13,6 +13,8 @@ export type GuestRow = {
   group_name: string | null
   invited_count: number
   note: string | null
+  rsvp_token: string
+  responded_at: string | null
 }
 
 type Props = {

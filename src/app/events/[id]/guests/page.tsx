@@ -30,7 +30,7 @@ export default async function GuestsPage({
   const { data: guests } = await supabase
     .from('guests')
     .select(
-      'id, first_name, last_name, phone, side, group_name, invited_count, attending_count, status, note',
+      'id, first_name, last_name, phone, side, group_name, invited_count, attending_count, status, note, rsvp_token, responded_at',
     )
     .eq('event_id', id)
     .order('created_at')

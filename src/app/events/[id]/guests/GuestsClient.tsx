@@ -4,7 +4,7 @@ import { useState, useTransition, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { formatPhone, isLandline } from '@/lib/phone'
-import { deleteGuest } from './actions'
+import { deleteGuest, updateGuestStatus } from './actions'
 import GuestForm, { type GuestRow } from './GuestForm'
 
 type Guest = GuestRow & {
@@ -61,13 +61,12 @@ export default function GuestsClient({
 
   // ── Stats ──────────────────────────────────────────────────────────────────
   const totalInvited = guests.reduce((s, g) => s + g.invited_count, 0)
-  const bySide = guests.reduce(
-    (acc, g) => {
-      acc[g.side] = (acc[g.side] ?? 0) + 1
-      return acc
-    },
-    {} as Record<string, number>,
-  )
+  const attendingSum = guests
+    .filter((g) => g.status === 'attending')
+    .reduce((s, g) => s + g.attending_count, 0)
+  const declinedCount = guests.filter((g) => g.status === 'declined').length
+  const maybeCount = guests.filter((g) => g.status === 'maybe').length
+  const pendingCount = guests.filter((g) => g.status === 'pending').length
 
   // ── Filtered list ──────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -112,17 +111,30 @@ export default function GuestsClient({
     })
   }
 
+  function handleStatusChange(
+    guestId: string,
+    status: 'pending' | 'attending' | 'declined' | 'maybe',
+  ) {
+    startTransition(async () => {
+      const result = await updateGuestStatus(guestId, eventId, status)
+      if ('error' in result) setDeleteError(result.error)
+      else router.refresh()
+    })
+  }
+
   const selectCls =
     'rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent'
 
   return (
     <div className="space-y-5">
       {/* ── Stat row ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
         <StatCard label="רשומות" value={guests.length} />
         <StatCard label="סה״כ מוזמנים" value={totalInvited} />
-        <StatCard label="חתן" value={bySide.groom ?? 0} />
-        <StatCard label="כלה" value={bySide.bride ?? 0} />
+        <StatCard label="מגיעים ✓" value={attendingSum} color="green" />
+        <StatCard label="לא מגיעים" value={declinedCount} color="red" />
+        <StatCard label="אולי" value={maybeCount} color="amber" />
+        <StatCard label="לא ענו" value={pendingCount} />
       </div>
 
       {/* ── Form (add/edit) ── */}
@@ -230,6 +242,7 @@ export default function GuestsClient({
                   <th className="px-4 py-3 text-right font-medium">קבוצה</th>
                   <th className="px-4 py-3 text-right font-medium">מוזמנים</th>
                   <th className="px-4 py-3 text-right font-medium">סטטוס</th>
+                  <th className="px-4 py-3 text-right font-medium">קישור</th>
                   <th className="px-4 py-3 text-right font-medium">פעולות</th>
                 </tr>
               </thead>
@@ -256,6 +269,40 @@ export default function GuestsClient({
                     <td className="px-4 py-3 text-center">{g.invited_count}</td>
                     <td className="px-4 py-3">
                       <StatusBadge status={g.status} />
+                      {g.responded_at && (
+                        <p className="mt-0.5 text-xs text-muted">
+                          {new Date(g.responded_at).toLocaleDateString('he-IL', {
+                            day: 'numeric',
+                            month: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="flex items-center gap-2">
+                        <button
+                          onClick={() =>
+                            navigator.clipboard.writeText(
+                              `${window.location.origin}/r/${g.rsvp_token}`,
+                            )
+                          }
+                          className="text-muted transition hover:text-foreground"
+                          title="העתק קישור אישי"
+                        >
+                          📋
+                        </button>
+                        <a
+                          href={`/r/${g.rsvp_token}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-muted transition hover:text-foreground"
+                          title="פתח דף RSVP"
+                        >
+                          🔗
+                        </a>
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <RowActions
@@ -266,6 +313,7 @@ export default function GuestsClient({
                         onRequestDelete={() => setConfirmDeleteId(g.id)}
                         onConfirmDelete={() => handleDelete(g.id)}
                         onCancelDelete={() => setConfirmDeleteId(null)}
+                        onStatusChange={(status) => handleStatusChange(g.id, status)}
                       />
                     </td>
                   </tr>
@@ -286,7 +334,7 @@ export default function GuestsClient({
                     <p className="font-semibold">
                       {g.first_name} {g.last_name ?? ''}
                     </p>
-                    <p className="mt-0.5 font-mono text-xs text-muted" dir="ltr">
+                    <p className="mt-0.5 text-xs text-muted" dir="ltr">
                       {formatPhone(g.phone)}
                       {isLandline(g.phone) && (
                         <span className="mr-1.5 inline-block rounded-full bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700 not-italic">
@@ -294,6 +342,17 @@ export default function GuestsClient({
                         </span>
                       )}
                     </p>
+                    {g.responded_at && (
+                      <p className="mt-0.5 text-xs text-muted">
+                        ענה/תה:{' '}
+                        {new Date(g.responded_at).toLocaleDateString('he-IL', {
+                          day: 'numeric',
+                          month: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </p>
+                    )}
                     <p className="mt-1 text-xs text-muted">
                       {SIDE_LABEL[g.side]}
                       {g.group_name ? ` · ${g.group_name}` : ''}
@@ -303,6 +362,28 @@ export default function GuestsClient({
                   </div>
                   <div className="flex flex-col items-end gap-2">
                     <StatusBadge status={g.status} />
+                    <span className="flex items-center gap-2">
+                      <button
+                        onClick={() =>
+                          navigator.clipboard.writeText(
+                            `${window.location.origin}/r/${g.rsvp_token}`,
+                          )
+                        }
+                        className="text-muted transition hover:text-foreground"
+                        title="העתק קישור אישי"
+                      >
+                        📋
+                      </button>
+                      <a
+                        href={`/r/${g.rsvp_token}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-muted transition hover:text-foreground"
+                        title="פתח דף RSVP"
+                      >
+                        🔗
+                      </a>
+                    </span>
                     <RowActions
                       guest={g}
                       isPending={isPending}
@@ -311,6 +392,7 @@ export default function GuestsClient({
                       onRequestDelete={() => setConfirmDeleteId(g.id)}
                       onConfirmDelete={() => handleDelete(g.id)}
                       onCancelDelete={() => setConfirmDeleteId(null)}
+                      onStatusChange={(status) => handleStatusChange(g.id, status)}
                     />
                   </div>
                 </div>
@@ -347,10 +429,26 @@ export default function GuestsClient({
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function StatCard({ label, value }: { label: string; value: number }) {
+function StatCard({
+  label,
+  value,
+  color,
+}: {
+  label: string
+  value: number
+  color?: 'green' | 'red' | 'amber'
+}) {
+  const valueColor =
+    color === 'green'
+      ? 'text-green-600'
+      : color === 'red'
+      ? 'text-red-600'
+      : color === 'amber'
+      ? 'text-amber-600'
+      : ''
   return (
     <div className="rounded-2xl border border-border bg-card p-4 text-center">
-      <p className="text-2xl font-bold">{value}</p>
+      <p className={`text-2xl font-bold ${valueColor}`}>{value}</p>
       <p className="text-xs text-muted">{label}</p>
     </div>
   )
@@ -374,6 +472,7 @@ function RowActions({
   onRequestDelete,
   onConfirmDelete,
   onCancelDelete,
+  onStatusChange,
 }: {
   guest: Guest
   isPending: boolean
@@ -382,6 +481,7 @@ function RowActions({
   onRequestDelete: () => void
   onConfirmDelete: () => void
   onCancelDelete: () => void
+  onStatusChange: (status: 'pending' | 'attending' | 'declined' | 'maybe') => void
 }) {
   if (confirmDeleteId === guest.id) {
     return (
@@ -402,6 +502,21 @@ function RowActions({
   }
   return (
     <span className="flex items-center gap-2">
+      <select
+        value={guest.status}
+        onChange={(e) =>
+          onStatusChange(
+            e.target.value as 'pending' | 'attending' | 'declined' | 'maybe',
+          )
+        }
+        disabled={isPending}
+        className="rounded border border-border bg-background px-1 py-0.5 text-xs focus:outline-none"
+      >
+        <option value="pending">ממתין</option>
+        <option value="attending">מגיע</option>
+        <option value="declined">לא מגיע</option>
+        <option value="maybe">אולי</option>
+      </select>
       <button
         onClick={onEdit}
         className="text-muted transition hover:text-foreground"

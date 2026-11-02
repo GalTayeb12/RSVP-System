@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import LogoutButton from '@/components/LogoutButton'
+import EventClient from './EventClient'
 
 export const instant = false
 
@@ -75,8 +76,18 @@ export default async function EventPage({
             {event.plate_price != null && (
               <Row label="מחיר מנה" value={`₪${event.plate_price}`} />
             )}
+            {event.waze_url && (
+              <Row label="Waze" value={event.waze_url} />
+            )}
           </dl>
         </div>
+
+        <EventClient
+          eventId={id}
+          currentImageUrl={event.invitation_image_url ?? null}
+          currentDeadline={event.rsvp_deadline ?? null}
+          eventDate={event.event_date ?? null}
+        />
       </main>
 
     </div>

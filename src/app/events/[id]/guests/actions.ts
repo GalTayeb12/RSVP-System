@@ -195,3 +195,38 @@ export async function importGuests(
   revalidatePath(`/events/${eventId}/guests`)
   return { imported }
 }
+
+// ─── Update RSVP status (manual) ─────────────────────────────────────────────
+
+export async function updateGuestStatus(
+  guestId: string,
+  eventId: string,
+  status: 'pending' | 'attending' | 'declined' | 'maybe',
+  attendingCount = 1,
+): Promise<{ success: true } | { error: string }> {
+  const supabase = await getAccessibleClient(eventId)
+  if (!supabase) return { error: 'אין גישה לאירוע' }
+
+  const { error } = await supabase
+    .from('guests')
+    .update({
+      status,
+      attending_count: status === 'attending' ? attendingCount : 0,
+      responded_at:
+        status !== 'pending' ? new Date().toISOString() : null,
+    })
+    .eq('id', guestId)
+    .eq('event_id', eventId)
+
+  if (error) return { error: `שגיאה בעדכון: ${error.message}` }
+
+  await supabase.from('rsvp_history').insert({
+    guest_id: guestId,
+    status,
+    attending_count: status === 'attending' ? attendingCount : 0,
+    source: 'manual',
+  })
+
+  revalidatePath(`/events/${eventId}/guests`)
+  return { success: true }
+}
