@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createHmac } from 'crypto'
 
 // ── Module setup ──────────────────────────────────────────────────────────────
@@ -24,6 +24,8 @@ import {
   parseButtonPayload,
   shouldUpdateMessageStatus,
   isOverDailyLimit,
+  isDryRunEnabled,
+  maskPhone,
   type BuildTemplateArgs,
 } from '../whatsapp'
 
@@ -203,6 +205,49 @@ describe('shouldUpdateMessageStatus', () => {
 
   it('prevents failed → failed (already marked)', () => {
     expect(shouldUpdateMessageStatus('failed', 'failed')).toBe(false)
+  })
+})
+
+// ── isDryRunEnabled ───────────────────────────────────────────────────────────
+
+describe('isDryRunEnabled', () => {
+  afterEach(() => {
+    delete process.env.WHATSAPP_DRY_RUN
+  })
+
+  it('returns true only for the exact string "true"', () => {
+    process.env.WHATSAPP_DRY_RUN = 'true'
+    expect(isDryRunEnabled()).toBe(true)
+  })
+
+  it('returns false for "false"', () => {
+    process.env.WHATSAPP_DRY_RUN = 'false'
+    expect(isDryRunEnabled()).toBe(false)
+  })
+
+  it('returns false for empty string', () => {
+    process.env.WHATSAPP_DRY_RUN = ''
+    expect(isDryRunEnabled()).toBe(false)
+  })
+
+  it('returns false when the variable is not set', () => {
+    expect(isDryRunEnabled()).toBe(false)
+  })
+})
+
+// ── maskPhone ─────────────────────────────────────────────────────────────────
+
+describe('maskPhone', () => {
+  it('masks all but the last 4 digits', () => {
+    expect(maskPhone('+972501234567')).toBe('****4567')
+  })
+
+  it('works on bare digits (no +)', () => {
+    expect(maskPhone('972501234567')).toBe('****4567')
+  })
+
+  it('handles a short number gracefully', () => {
+    expect(maskPhone('123')).toBe('****')
   })
 })
 

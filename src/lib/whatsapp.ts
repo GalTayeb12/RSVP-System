@@ -11,14 +11,26 @@ export function isWhatsAppConfigured(): boolean {
   )
 }
 
+/** Returns true only when WHATSAPP_DRY_RUN is exactly the string "true". */
+export function isDryRunEnabled(): boolean {
+  return process.env.WHATSAPP_DRY_RUN === 'true'
+}
+
 function cfg() {
   return {
     accessToken:   process.env.WHATSAPP_ACCESS_TOKEN!,
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID!,
     graphVersion:  process.env.WHATSAPP_GRAPH_VERSION ?? 'v25.0',
-    dryRun:        process.env.WHATSAPP_DRY_RUN === 'true',
+    dryRun:        isDryRunEnabled(),
     dailyLimit:    parseInt(process.env.WHATSAPP_DAILY_LIMIT ?? '250', 10),
   }
+}
+
+/** Masks a phone number, leaving only the last 4 digits visible: ****5863 */
+export function maskPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, '')
+  if (digits.length < 4) return '****'
+  return '****' + digits.slice(-4)
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -231,7 +243,9 @@ async function callGraphApi(
   const { accessToken, phoneNumberId, graphVersion, dryRun } = cfg()
 
   if (dryRun) {
-    console.log('[whatsapp] DRY_RUN', JSON.stringify(payload))
+    const to = (payload as Record<string, unknown>).to
+    const phone = typeof to === 'string' ? maskPhone(to) : '****'
+    console.log(`[whatsapp] DRY_RUN to=${phone}`)
     return { providerId: `dry-${Date.now()}` }
   }
 

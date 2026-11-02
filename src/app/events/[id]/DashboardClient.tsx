@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useCallback } from 'react'
+import { useEffect, useMemo, useCallback, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -56,14 +56,15 @@ const SIDE_LABEL: Record<string, string> = {
   shared: 'משותף',
 }
 
-function daysUntil(dateStr: string | null): number | null {
-  if (!dateStr) return null
-  const diff = new Date(dateStr).getTime() - Date.now()
+function daysUntil(dateStr: string | null, now: number): number | null {
+  if (!dateStr || now === 0) return null
+  const diff = new Date(dateStr).getTime() - now
   return Math.ceil(diff / (1000 * 60 * 60 * 24))
 }
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime()
+function timeAgo(dateStr: string, now: number): string {
+  if (now === 0) return ''
+  const diff = now - new Date(dateStr).getTime()
   const mins = Math.floor(diff / 60000)
   if (mins < 1) return 'עכשיו'
   if (mins < 60) return `לפני ${mins} דק׳`
@@ -83,6 +84,10 @@ export default function DashboardClient({
   canSend,
 }: Props) {
   const router = useRouter()
+  // Initialized to 0 so Date.now() never runs during SSR prerender.
+  // Set to the real timestamp on the client after first paint.
+  const [now, setNow] = useState(0)
+  useEffect(() => { setNow(Date.now()) }, [])
 
   // Realtime subscription
   useEffect(() => {
@@ -115,8 +120,8 @@ export default function DashboardClient({
     [guests],
   )
 
-  const daysToEvent = daysUntil(eventDate)
-  const daysToDeadline = daysUntil(rsvpDeadline)
+  const daysToEvent = daysUntil(eventDate, now)
+  const daysToDeadline = daysUntil(rsvpDeadline, now)
 
   // SVG ring
   const radius = 52
@@ -416,7 +421,7 @@ export default function DashboardClient({
                         : ''}
                     </span>
                   </div>
-                  <span className="text-xs text-muted">{timeAgo(h.created_at)}</span>
+                  <span className="text-xs text-muted">{timeAgo(h.created_at, now)}</span>
                 </li>
               )
             })}

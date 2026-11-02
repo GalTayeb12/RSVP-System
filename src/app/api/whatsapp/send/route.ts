@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendWhatsAppTemplate, isOverDailyLimit } from '@/lib/whatsapp'
+import { sendWhatsAppTemplate, isOverDailyLimit, maskPhone } from '@/lib/whatsapp'
 
 const BATCH_SIZE = 20
 
@@ -130,6 +130,9 @@ export async function POST(request: NextRequest) {
       }).eq('id', row.id)
       sentCount++
     } else {
+      if (result.permanent) {
+        console.error(`[send] permanent failure phone=${maskPhone(guest.phone)} code=${result.errorCode ?? '-'} err=${result.error}`)
+      }
       await admin.from('messages').update({
         status:     result.permanent ? 'failed' : 'queued',
         failed_at:  result.permanent ? new Date().toISOString() : null,
