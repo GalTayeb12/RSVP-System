@@ -124,19 +124,7 @@ export default function DashboardClient({
   const strokeOffset = circ * (1 - fillRatio)
 
   const handleExport = useCallback(async () => {
-    // Load SheetJS from CDN on first use
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let XLSX: any = (window as any).XLSX
-    if (!XLSX) {
-      XLSX = await new Promise((resolve, reject) => {
-        const script = document.createElement('script')
-        script.src =
-          'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'
-        script.onload = () => resolve((window as any).XLSX) // eslint-disable-line @typescript-eslint/no-explicit-any
-        script.onerror = reject
-        document.head.appendChild(script)
-      })
-    }
+    const XLSX = await import('xlsx')
     const rows = guests.map((g) => ({
       שם: `${g.first_name} ${g.last_name ?? ''}`.trim(),
       טלפון: g.phone,
